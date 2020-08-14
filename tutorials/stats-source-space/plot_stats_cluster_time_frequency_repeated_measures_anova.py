@@ -17,8 +17,8 @@ that it exposes a strong induced response. We will then visualize
 each effect by creating a corresponding mass-univariate effect
 image. We conclude with accounting for multiple comparisons by
 performing a permutation clustering test using the ANOVA as
-clustering function. The results final will be compared to
-multiple comparisons using False Discovery Rate correction.
+clustering function. The results final will be compared to multiple
+comparisons using False Discovery Rate correction.
 """
 # Authors: Denis Engemann <denis.engemann@gmail.com>
 #          Eric Larson <larson.eric.d@gmail.com>
@@ -197,7 +197,7 @@ tail = 1  # f-test, so tail > 0
 n_permutations = 256  # Save some time (the test won't be too sensitive ...)
 T_obs, clusters, cluster_p_values, h0 = mne.stats.permutation_cluster_test(
     epochs_power, stat_fun=stat_fun, threshold=f_thresh, tail=tail, n_jobs=1,
-    n_permutations=n_permutations, buffer_size=None)
+    n_permutations=n_permutations, buffer_size=None, out_type='mask')
 
 ###############################################################################
 # Create new stats image with only significant clusters:

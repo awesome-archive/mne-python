@@ -10,65 +10,20 @@
 #
 # License: BSD (3-clause)
 
-import calendar
-import datetime
+from datetime import datetime, timezone, timedelta
 import os
 import re
 
 import numpy as np
 
 from ...utils import verbose, logger, warn
-from ..utils import _blk_read_lims, _deprecate_montage
+from ..utils import _blk_read_lims
 from ..base import BaseRaw
-from ..meas_info import _empty_info, _unique_channel_names, DATE_NONE
+from ..meas_info import _empty_info, _unique_channel_names
 from ..constants import FIFF
 from ...filter import resample
-from ...utils import copy_function_doc_to_method_doc, deprecated, fill_doc
-from ...annotations import Annotations, events_from_annotations
-
-
-@deprecated('find_edf_events is deprecated in 0.18, and will be removed'
-            ' in 0.19. Please use `mne.events_from_annotations` instead')
-def find_edf_events(raw):
-    """Get original EDF events as read from the header.
-
-    For GDF, the values are returned in form
-    [n_events, pos, typ, chn, dur]
-    where:
-
-    ========  ===================================  =======
-    name      description                          type
-    ========  ===================================  =======
-    n_events  The number of all events             integer
-    pos       Beginning of the events in samples   array
-    typ       The event identifiers                array
-    chn       The associated channels (0 for all)  array
-    dur       The durations of the events          array
-    ========  ===================================  =======
-
-    For EDF+, the values are returned in form
-    n_events * [onset, dur, desc]
-    where:
-
-    ========  ===================================  =======
-    name      description                          type
-    ========  ===================================  =======
-    onset     Onset of the event in seconds        float
-    dur       Duration of the event in seconds     float
-    desc      Description of the event             str
-    ========  ===================================  =======
-
-    Parameters
-    ----------
-    raw : instance of RawEDF
-        The raw object for finding the events.
-
-    Returns
-    -------
-    events : ndarray
-        The events as they are in the file header.
-    """
-    return events_from_annotations(raw)
+from ...utils import fill_doc
+from ...annotations import Annotations
 
 
 @fill_doc
@@ -79,7 +34,6 @@ class RawEDF(BaseRaw):
     ----------
     input_fname : str
         Path to the EDF, EDF+ or BDF file.
-    %(montage_deprecated)s
     eog : list or tuple
         Names of channels or list of indices that should be designated EOG
         channels. Values should correspond to the electrodes in the file.
@@ -106,6 +60,12 @@ class RawEDF(BaseRaw):
         different sampling rates to avoid unnecessary resampling.
     %(preload)s
     %(verbose)s
+
+    See Also
+    --------
+    mne.io.Raw : Documentation of attributes and methods.
+    mne.io.read_raw_edf : Recommended way to read EDF/EDF+ files.
+    mne.io.read_raw_bdf : Recommended way to read BDF files.
 
     Notes
     -----
@@ -143,16 +103,10 @@ class RawEDF(BaseRaw):
     If channels named 'status' or 'trigger' are present, they are considered as
     STIM channels by default. Use func:`mne.find_events` to parse events
     encoded in such analog stim channels.
-
-    See Also
-    --------
-    mne.io.Raw : Documentation of attributes and methods.
-    mne.io.read_raw_edf : Recommended way to read EDF/EDF+ files.
-    mne.io.read_raw_bdf : Recommended way to read BDF files.
     """
 
     @verbose
-    def __init__(self, input_fname, montage, eog=None, misc=None,
+    def __init__(self, input_fname, eog=None, misc=None,
                  stim_channel='auto', exclude=(), preload=False, verbose=None):
         logger.info('Extracting EDF parameters from {}...'.format(input_fname))
         input_fname = os.path.abspath(input_fname)
@@ -172,27 +126,18 @@ class RawEDF(BaseRaw):
         onset, duration, desc = list(), list(), list()
         if len(edf_info['tal_idx']) > 0:
             # Read TAL data exploiting the header info (no regexp)
-            tal_data = self._read_segment_file([], [], 0, 0, int(self.n_times),
-                                               None, None)
+            idx = np.empty(0, int)
+            tal_data = self._read_segment_file(
+                [], idx, 0, 0, int(self.n_times), None, None)
             onset, duration, desc = _read_annotations_edf(tal_data[0])
 
         self.set_annotations(Annotations(onset=onset, duration=duration,
                                          description=desc, orig_time=None))
 
-        _deprecate_montage(self, "read_raw_edf", montage)
-
-    @verbose
     def _read_segment_file(self, data, idx, fi, start, stop, cals, mult):
         """Read a chunk of raw data."""
         return _read_segment_file(data, idx, fi, start, stop,
-                                  self._raw_extras[fi], self.info['chs'],
-                                  self._filenames[fi])
-
-    @copy_function_doc_to_method_doc(find_edf_events)
-    @deprecated('find_edf_events is deprecated in 0.18, and will be removed'
-                ' in 0.19. Please use `mne.events_from_annotations` instead')
-    def find_edf_events(self):
-        return events_from_annotations(self)
+                                  self._raw_extras[fi], self._filenames[fi])
 
 
 @fill_doc
@@ -203,7 +148,6 @@ class RawGDF(BaseRaw):
     ----------
     input_fname : str
         Path to the GDF file.
-    %(montage_deprecated)s
     eog : list or tuple
         Names of channels or list of indices that should be designated EOG
         channels. Values should correspond to the electrodes in the file.
@@ -223,20 +167,20 @@ class RawGDF(BaseRaw):
     %(preload)s
     %(verbose)s
 
+    See Also
+    --------
+    mne.io.Raw : Documentation of attributes and methods.
+    mne.io.read_raw_gdf : Recommended way to read GDF files.
+
     Notes
     -----
     If channels named 'status' or 'trigger' are present, they are considered as
     STIM channels by default. Use func:`mne.find_events` to parse events
     encoded in such analog stim channels.
-
-    See Also
-    --------
-    mne.io.Raw : Documentation of attributes and methods.
-    mne.io.read_raw_gdf : Recommended way to read GDF files.
     """
 
     @verbose
-    def __init__(self, input_fname, montage, eog=None, misc=None,
+    def __init__(self, input_fname, eog=None, misc=None,
                  stim_channel='auto', exclude=(), preload=False, verbose=None):
         logger.info('Extracting EDF parameters from {}...'.format(input_fname))
         input_fname = os.path.abspath(input_fname)
@@ -259,20 +203,10 @@ class RawGDF(BaseRaw):
         self.set_annotations(Annotations(onset=onset, duration=duration,
                                          description=desc, orig_time=None))
 
-        _deprecate_montage(self, "read_raw_gdf", montage)
-
-    @verbose
     def _read_segment_file(self, data, idx, fi, start, stop, cals, mult):
         """Read a chunk of raw data."""
         return _read_segment_file(data, idx, fi, start, stop,
-                                  self._raw_extras[fi], self.info['chs'],
-                                  self._filenames[fi])
-
-    @copy_function_doc_to_method_doc(find_edf_events)
-    @deprecated('find_edf_events is deprecated in 0.18, and will be removed'
-                ' in 0.19. Please use `mne.events_from_annotations` instead')
-    def find_edf_events(self):
-        return events_from_annotations(self)
+                                  self._raw_extras[fi], self._filenames[fi])
 
 
 def _read_ch(fid, subtype, samp, dtype_byte, dtype=None):
@@ -294,7 +228,7 @@ def _read_ch(fid, subtype, samp, dtype_byte, dtype=None):
     return ch_data
 
 
-def _read_segment_file(data, idx, fi, start, stop, raw_extras, chs, filenames):
+def _read_segment_file(data, idx, fi, start, stop, raw_extras, filenames):
     """Read a chunk of raw data."""
     from scipy.interpolate import interp1d
 
@@ -307,18 +241,16 @@ def _read_segment_file(data, idx, fi, start, stop, raw_extras, chs, filenames):
     orig_sel = raw_extras['sel']
     tal_idx = raw_extras.get('tal_idx', [])
     subtype = raw_extras['subtype']
+    cal = raw_extras['cal']
 
     # gain constructor
-    physical_range = np.array([ch['range'] for ch in chs])
-    cal = np.array([ch['cal'] for ch in chs])
-    cal = np.atleast_2d(physical_range / cal)  # physical / digital
-    gains = np.atleast_2d(raw_extras['units'])
+    gains = raw_extras['units']
 
-    # physical dimension in uV
+    # physical dimension in µV
     physical_min = raw_extras['physical_min']
     digital_min = raw_extras['digital_min']
 
-    offsets = np.atleast_2d(physical_min - (digital_min * cal)).T
+    offsets = physical_min - (digital_min * cal)
     this_sel = orig_sel[idx]
     if len(tal_idx):
         this_sel = np.concatenate([this_sel, tal_idx])
@@ -347,7 +279,7 @@ def _read_segment_file(data, idx, fi, start, stop, raw_extras, chs, filenames):
                 # This now has size (n_chunks_read, n_samp[ci])
                 ch_data = many_chunk[:, ch_offsets[ci]:ch_offsets[ci + 1]]
 
-                if len(tal_idx) and ci == tal_idx[0]:
+                if len(tal_idx) and ci in tal_idx:
                     tal_data.append(ch_data)
                     continue
 
@@ -381,27 +313,33 @@ def _read_segment_file(data, idx, fi, start, stop, raw_extras, chs, filenames):
     if stim_channel is None:  # avoid NumPy comparison to None
         stim_channel_idx = np.array([], int)
     else:
-        _idx = np.arange(len(chs))[idx]  # slice -> ints
         stim_channel_idx = list()
+        if isinstance(idx, slice):
+            use_idx = np.arange(idx.start, idx.stop)
+        else:
+            use_idx = idx
         for stim_ch in stim_channel:
-            stim_ch_idx = np.where(_idx == stim_ch)[0].tolist()
+            stim_ch_idx = np.where(use_idx == stim_ch)[0].tolist()
             if len(stim_ch_idx):
                 stim_channel_idx.append(stim_ch_idx)
         stim_channel_idx = np.array(stim_channel_idx).ravel()
 
     if subtype == 'bdf' and len(stim_channel_idx) > 0:
-        cal[0, stim_channel_idx] = 1
-        offsets[stim_channel_idx, 0] = 0
-        gains[0, stim_channel_idx] = 1
-    data *= cal.T[idx]
-    data += offsets[idx]
-    data *= gains.T[idx]
+        cal[stim_channel_idx] = 1
+        offsets[stim_channel_idx] = 0
+        gains[stim_channel_idx] = 1
+    data *= cal[idx][:, np.newaxis]
+    data += offsets[idx][:, np.newaxis]
+    data *= gains[idx][:, np.newaxis]
 
     if stim_channel is not None and len(stim_channel_idx) > 0:
         stim = np.bitwise_and(data[stim_channel_idx].astype(int),
                               2**17 - 1)
         data[stim_channel_idx, :] = stim
 
+    if len(tal_data) > 1:
+        tal_data = np.concatenate([tal.ravel() for tal in tal_data])
+        tal_data = tal_data[np.newaxis, :]
     return tal_data
 
 
@@ -474,7 +412,7 @@ def _get_info(fname, stim_channel, eog, misc, exclude, preload):
         chan_info['logno'] = idx + 1
         chan_info['scanno'] = idx + 1
         chan_info['range'] = physical_range
-        chan_info['unit_mul'] = 0.
+        chan_info['unit_mul'] = FIFF.FIFF_UNITM_NONE
         chan_info['ch_name'] = ch_name
         chan_info['unit'] = FIFF.FIFF_UNIT_V
         chan_info['coord_frame'] = FIFF.FIFFV_COORD_HEAD
@@ -545,7 +483,7 @@ def _get_info(fname, stim_channel, eog, misc, exclude, preload):
     if lowpass.size == 0:
         pass  # Placeholder for future use. Lowpass set in _empty_info.
     elif all(lowpass):
-        if lowpass[0] == 'NaN':
+        if lowpass[0] in ('NaN', '0', '0.0'):
             pass  # Placeholder for future use. Lowpass set in _empty_info.
         else:
             info['lowpass'] = float(lowpass[0])
@@ -562,7 +500,29 @@ def _get_info(fname, stim_channel, eog, misc, exclude, preload):
 
     info._update_redundant()
 
+    # Later used for reading
+    physical_range = np.array([ch['range'] for ch in chs])
+    cal = (physical_range / np.array([ch['cal'] for ch in chs]))
+    edf_info['cal'] = cal
+
     return info, edf_info, orig_units
+
+
+def _parse_prefilter_string(prefiltering):
+    """Parse prefilter string from EDF+ and BDF headers."""
+    highpass = np.array(
+        [v for hp in [re.findall(r'HP:\s*([0-9]+[.]*[0-9]*)', filt)
+                      for filt in prefiltering] for v in hp]
+    )
+    lowpass = np.array(
+        [v for hp in [re.findall(r'LP:\s*([0-9]+[.]*[0-9]*)', filt)
+                      for filt in prefiltering] for v in hp]
+    )
+    return highpass, lowpass
+
+
+def _edf_str_int(x, fid=None):
+    return int(x.decode().rstrip('\x00'))
 
 
 def _read_edf_header(fname, exclude):
@@ -583,17 +543,17 @@ def _read_edf_header(fname, exclude):
 
         # Recording ID
         meas_id = {}
-        meas_id['recording_id'] = fid.read(80).decode().strip(' \x00')
+        meas_id['recording_id'] = fid.read(80).decode('latin-1').strip(' \x00')
 
         day, month, year = [int(x) for x in
                             re.findall(r'(\d+)', fid.read(8).decode())]
         hour, minute, sec = [int(x) for x in
                              re.findall(r'(\d+)', fid.read(8).decode())]
         century = 2000 if year < 50 else 1900
-        date = datetime.datetime(year + century, month, day, hour, minute, sec)
-        meas_date = (calendar.timegm(date.utctimetuple()), 0)
+        meas_date = datetime(year + century, month, day, hour, minute, sec,
+                             tzinfo=timezone.utc)
 
-        header_nbytes = int(fid.read(8).decode())
+        header_nbytes = _edf_str_int(fid.read(8))
 
         # The following 44 bytes sometimes identify the file type, but this is
         # not guaranteed. Therefore, we skip this field and use the file
@@ -603,7 +563,7 @@ def _read_edf_header(fname, exclude):
         fid.read(44)
         subtype = os.path.splitext(fname)[1][1:].lower()
 
-        n_records = int(fid.read(8).decode())
+        n_records = _edf_str_int(fid.read(8))
         record_length = fid.read(8).decode().strip('\x00').strip()
         record_length = np.array([float(record_length), 1.])  # in seconds
         if record_length[0] == 0:
@@ -611,7 +571,7 @@ def _read_edf_header(fname, exclude):
             warn('Header information is incorrect for record length. Default '
                  'record length set to 1.')
 
-        nchan = int(fid.read(4).decode())
+        nchan = _edf_str_int(fid.read(4))
         channels = list(range(nchan))
         ch_names = [fid.read(16).strip().decode('latin-1') for ch in channels]
         exclude = _find_exclude_idx(ch_names, exclude)
@@ -631,6 +591,7 @@ def _read_edf_header(fname, exclude):
                 edf_info['units'].append(1e-3)
             else:
                 edf_info['units'].append(1)
+        edf_info['units'] = np.array(edf_info['units'], float)
 
         ch_names = [ch_names[idx] for idx in sel]
         units = [units[idx] for idx in sel]
@@ -649,14 +610,10 @@ def _read_edf_header(fname, exclude):
                                 for ch in channels])[sel]
         prefiltering = [fid.read(80).decode().strip(' \x00')
                         for ch in channels][:-1]
-        highpass = np.ravel([re.findall(r'HP:\s+(\w+)', filt)
-                             for filt in prefiltering])
-        lowpass = np.ravel([re.findall(r'LP:\s+(\w+)', filt)
-                            for filt in prefiltering])
+        highpass, lowpass = _parse_prefilter_string(prefiltering)
 
         # number of samples per record
-        n_samps = np.array([int(fid.read(8).decode()) for ch
-                            in channels])
+        n_samps = np.array([_edf_str_int(fid.read(8)) for ch in channels])
 
         # Populate edf_info
         edf_info.update(
@@ -720,7 +677,7 @@ def _read_gdf_header(fname, exclude):
         version = fid.read(8).decode()
         edf_info['type'] = edf_info['subtype'] = version[:3]
         edf_info['number'] = float(version[4:])
-        meas_date = DATE_NONE
+        meas_date = None
 
         # GDF 1.x
         # ---------------------------------------------------------------------
@@ -743,11 +700,12 @@ def _read_gdf_header(fname, exclude):
             try:
                 if tm[14:16] == '  ':
                     tm = tm[:14] + '00' + tm[16:]
-                date = datetime.datetime(int(tm[0:4]), int(tm[4:6]),
-                                         int(tm[6:8]), int(tm[8:10]),
-                                         int(tm[10:12]), int(tm[12:14]),
-                                         int(tm[14:16]) * pow(10, 4))
-                meas_date = (calendar.timegm(date.utctimetuple()), 0)
+                meas_date = datetime(
+                    int(tm[0:4]), int(tm[4:6]),
+                    int(tm[6:8]), int(tm[8:10]),
+                    int(tm[10:12]), int(tm[12:14]),
+                    int(tm[14:16]) * pow(10, 4),
+                    tzinfo=timezone.utc)
             except Exception:
                 pass
 
@@ -779,6 +737,7 @@ def _read_gdf_header(fname, exclude):
                 else:
                     units[i] = 1
                 sel.append(i)
+            units = np.array(units, float)
 
             ch_names = [ch_names[idx] for idx in sel]
             physical_min = np.fromfile(fid, np.float64, len(channels))
@@ -787,10 +746,7 @@ def _read_gdf_header(fname, exclude):
             digital_max = np.fromfile(fid, np.int64, len(channels))
             prefiltering = [fid.read(80).decode().strip(' \x00')
                             for ch in channels][:-1]
-            highpass = np.ravel([re.findall(r'HP:\s+(\w+)', filt)
-                                 for filt in prefiltering])
-            lowpass = np.ravel([re.findall('LP:\\s+(\\w+)', filt)
-                                for filt in prefiltering])
+            highpass, lowpass = _parse_prefilter_string(prefiltering)
 
             # n samples per record
             n_samps = np.fromfile(fid, np.int32, len(channels))
@@ -900,21 +856,23 @@ def _read_gdf_header(fname, exclude):
             loc['altitude'] = float(np.fromfile(fid, np.int32, 1)[0]) / 100
             meas_id['loc'] = loc
 
-            date = np.fromfile(fid, np.uint64, 1)[0]
-            if date != 0:
-                date = datetime.datetime(1, 1, 1) + \
-                    datetime.timedelta(date * pow(2, -32) - 367)
-                meas_date = (calendar.timegm(date.utctimetuple()), 0)
+            meas_date = np.fromfile(fid, np.uint64, 1)[0]
+            if meas_date != 0:
+                meas_date = (datetime(1, 1, 1, tzinfo=timezone.utc) +
+                             timedelta(meas_date * pow(2, -32) - 367))
+            else:
+                meas_date = None
 
             birthday = np.fromfile(fid, np.uint64, 1).tolist()[0]
             if birthday == 0:
-                birthday = datetime.datetime(1, 1, 1)
+                birthday = datetime(1, 1, 1, tzinfo=timezone.utc)
             else:
-                birthday = (datetime.datetime(1, 1, 1) +
-                            datetime.timedelta(birthday * pow(2, -32) - 367))
+                birthday = (datetime(1, 1, 1, tzinfo=timezone.utc) +
+                            timedelta(birthday * pow(2, -32) - 367))
             patient['birthday'] = birthday
-            if patient['birthday'] != datetime.datetime(1, 1, 1, 0, 0):
-                today = datetime.datetime.today()
+            if patient['birthday'] != datetime(1, 1, 1, 0, 0,
+                                               tzinfo=timezone.utc):
+                today = datetime.now(tz=timezone.utc)
                 patient['age'] = today.year - patient['birthday'].year
                 today = today.replace(year=patient['birthday'].year)
                 if today < patient['birthday']:
@@ -979,6 +937,7 @@ def _read_gdf_header(fname, exclude):
                          'MNE-Python developers for support.' % i)
                     units[i] = 1
                 sel.append(i)
+            units = np.array(units, float)
 
             ch_names = [ch_names[idx] for idx in sel]
             physical_min = np.fromfile(fid, np.float64, len(channels))
@@ -1084,8 +1043,11 @@ def _check_stim_channel(stim_channel, ch_names,
     """Check that the stimulus channel exists in the current datafile."""
     DEFAULT_STIM_CH_NAMES = ['status', 'trigger']
 
-    if stim_channel is None:
+    if stim_channel is None or stim_channel is False:
         return [], []
+
+    if stim_channel is True:  # convenient aliases
+        stim_channel = 'auto'
 
     elif isinstance(stim_channel, str):
         if stim_channel == 'auto':
@@ -1149,7 +1111,7 @@ def _find_tal_idx(ch_names):
 
 
 @fill_doc
-def read_raw_edf(input_fname, montage='deprecated', eog=None, misc=None,
+def read_raw_edf(input_fname, eog=None, misc=None,
                  stim_channel='auto', exclude=(), preload=False, verbose=None):
     """Reader function for EDF or EDF+ files.
 
@@ -1157,7 +1119,6 @@ def read_raw_edf(input_fname, montage='deprecated', eog=None, misc=None,
     ----------
     input_fname : str
         Path to the EDF or EDF+ file.
-    %(montage_deprecated)s
     eog : list or tuple
         Names of channels or list of indices that should be designated EOG
         channels. Values should correspond to the electrodes in the file.
@@ -1185,6 +1146,16 @@ def read_raw_edf(input_fname, montage='deprecated', eog=None, misc=None,
     %(preload)s
     %(verbose)s
 
+    Returns
+    -------
+    raw : instance of RawEDF
+        The raw instance.
+
+    See Also
+    --------
+    mne.io.read_raw_bdf : Reader function for BDF files.
+    mne.io.read_raw_gdf : Reader function for GDF files.
+
     Notes
     -----
     It is worth noting that in some special cases, it may be necessary to shift
@@ -1201,33 +1172,19 @@ def read_raw_edf(input_fname, montage='deprecated', eog=None, misc=None,
     If channels named 'status' or 'trigger' are present, they are considered as
     STIM channels by default. Use func:`mne.find_events` to parse events
     encoded in such analog stim channels.
-
-    See Also
-    --------
-    mne.io.read_raw_bdf : Reader function for BDF files.
-    mne.io.read_raw_gdf : Reader function for GDF files.
     """
     input_fname = os.path.abspath(input_fname)
     ext = os.path.splitext(input_fname)[1][1:].lower()
-    if ext == 'gdf':
-        warn('The use of read_raw_edf for GDF files is deprecated. Please use '
-             'read_raw_gdf instead.', DeprecationWarning)
-        return RawGDF(input_fname=input_fname, montage=montage, eog=eog,
-                      misc=misc, stim_channel=stim_channel, exclude=exclude,
-                      preload=preload, verbose=verbose)
-    elif ext == 'bdf':
-        warn('The use of read_raw_edf for BDF files is deprecated. Please use '
-             'read_raw_bdf instead.', DeprecationWarning)
-    elif ext not in ('edf', 'bdf'):
-        raise NotImplementedError('Only EDF and BDF files are supported, got '
-                                  '{}.'.format(ext))
-    return RawEDF(input_fname=input_fname, montage=montage, eog=eog, misc=misc,
+    if ext != 'edf':
+        raise NotImplementedError(
+            'Only EDF files are supported by read_raw_edf, got %s' % (ext,))
+    return RawEDF(input_fname=input_fname, eog=eog, misc=misc,
                   stim_channel=stim_channel, exclude=exclude, preload=preload,
                   verbose=verbose)
 
 
 @fill_doc
-def read_raw_bdf(input_fname, montage='deprecated', eog=None, misc=None,
+def read_raw_bdf(input_fname, eog=None, misc=None,
                  stim_channel='auto', exclude=(), preload=False, verbose=None):
     """Reader function for BDF files.
 
@@ -1235,7 +1192,6 @@ def read_raw_bdf(input_fname, montage='deprecated', eog=None, misc=None,
     ----------
     input_fname : str
         Path to the BDF file.
-    %(montage_deprecated)s
     eog : list or tuple
         Names of channels or list of indices that should be designated EOG
         channels. Values should correspond to the electrodes in the file.
@@ -1262,6 +1218,16 @@ def read_raw_bdf(input_fname, montage='deprecated', eog=None, misc=None,
         different sampling rates to avoid unnecessary resampling.
     %(preload)s
     %(verbose)s
+
+    Returns
+    -------
+    raw : instance of RawEDF
+        The raw instance.
+
+    See Also
+    --------
+    mne.io.read_raw_edf : Reader function for EDF and EDF+ files.
+    mne.io.read_raw_gdf : Reader function for GDF files.
 
     Notes
     -----
@@ -1298,24 +1264,19 @@ def read_raw_bdf(input_fname, montage='deprecated', eog=None, misc=None,
     If channels named 'status' or 'trigger' are present, they are considered as
     STIM channels by default. Use func:`mne.find_events` to parse events
     encoded in such analog stim channels.
-
-    See Also
-    --------
-    mne.io.read_raw_edf : Reader function for EDF and EDF+ files.
-    mne.io.read_raw_gdf : Reader function for GDF files.
     """
     input_fname = os.path.abspath(input_fname)
     ext = os.path.splitext(input_fname)[1][1:].lower()
     if ext != 'bdf':
         raise NotImplementedError('Only BDF files are supported, got '
                                   '{}.'.format(ext))
-    return RawEDF(input_fname=input_fname, montage=montage, eog=eog, misc=misc,
+    return RawEDF(input_fname=input_fname, eog=eog, misc=misc,
                   stim_channel=stim_channel, exclude=exclude, preload=preload,
                   verbose=verbose)
 
 
 @fill_doc
-def read_raw_gdf(input_fname, montage='deprecated', eog=None, misc=None,
+def read_raw_gdf(input_fname, eog=None, misc=None,
                  stim_channel='auto', exclude=(), preload=False, verbose=None):
     """Reader function for GDF files.
 
@@ -1323,10 +1284,6 @@ def read_raw_gdf(input_fname, montage='deprecated', eog=None, misc=None,
     ----------
     input_fname : str
         Path to the GDF file.
-    montage : str | None | instance of Montage
-        Path or instance of montage containing electrode positions. If None,
-        sensor locations are (0,0,0). See the documentation of
-        :func:`mne.channels.read_montage` for more information.
     eog : list or tuple
         Names of channels or list of indices that should be designated EOG
         channels. Values should correspond to the electrodes in the file.
@@ -1346,23 +1303,28 @@ def read_raw_gdf(input_fname, montage='deprecated', eog=None, misc=None,
     %(preload)s
     %(verbose)s
 
-    Notes
-    -----
-    If channels named 'status' or 'trigger' are present, they are considered as
-    STIM channels by default. Use func:`mne.find_events` to parse events
-    encoded in such analog stim channels.
+    Returns
+    -------
+    raw : instance of RawGDF
+        The raw instance.
 
     See Also
     --------
     mne.io.read_raw_edf : Reader function for EDF and EDF+ files.
     mne.io.read_raw_bdf : Reader function for BDF files.
+
+    Notes
+    -----
+    If channels named 'status' or 'trigger' are present, they are considered as
+    STIM channels by default. Use func:`mne.find_events` to parse events
+    encoded in such analog stim channels.
     """
     input_fname = os.path.abspath(input_fname)
     ext = os.path.splitext(input_fname)[1][1:].lower()
     if ext != 'gdf':
         raise NotImplementedError('Only GDF files are supported, got '
                                   '{}.'.format(ext))
-    return RawGDF(input_fname=input_fname, montage=montage, eog=eog, misc=misc,
+    return RawGDF(input_fname=input_fname, eog=eog, misc=misc,
                   stim_channel=stim_channel, exclude=exclude, preload=preload,
                   verbose=verbose)
 
@@ -1413,12 +1375,23 @@ def _read_annotations_edf(annotations):
         triggers = re.findall(pat, tals.decode('latin-1'))
 
     events = []
-    for ev in triggers:
-        onset = float(ev[0])
+    offset = 0.
+    for k, ev in enumerate(triggers):
+        onset = float(ev[0]) + offset
         duration = float(ev[2]) if ev[2] else 0
         for description in ev[3].split('\x14')[1:]:
             if description:
                 events.append([onset, duration, description])
+            elif k == 0:
+                # The startdate/time of a file is specified in the EDF+ header
+                # fields 'startdate of recording' and 'starttime of recording'.
+                # These fields must indicate the absolute second in which the
+                # start of the first data record falls. So, the first TAL in
+                # the first data record always starts with +0.X, indicating
+                # that the first data record starts a fraction, X, of a second
+                # after the startdate/time that is specified in the EDF+
+                # header. If X=0, then the .X may be omitted.
+                offset = -onset
 
     return zip(*events) if events else (list(), list(), list())
 

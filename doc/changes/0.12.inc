@@ -81,13 +81,13 @@ BUG
 
 - Fix bug where :func:`mne.preprocessing.maxwell_filter` ``destination`` parameter did not properly set device-to-head transform by `Eric Larson`_
 
-- Fix bug in rank calculation of ``mne.utils.estimate_rank``, :func:`mne.io.Raw.estimate_rank`, and covariance functions where the tolerance was set to slightly too small a value, new 'auto' mode uses values from ``scipy.linalg.orth`` by `Eric Larson`_.
+- Fix bug in rank calculation of ``mne.utils.estimate_rank``, ``mne.io.Raw.estimate_rank``, and covariance functions where the tolerance was set to slightly too small a value, new 'auto' mode uses values from ``scipy.linalg.orth`` by `Eric Larson`_.
 
 - Fix bug when specifying irregular ``train_times['slices']`` in ``mne.decoding.GeneralizationAcrossTime``, by `Jean-Remi King`_
 
 - Fix colorbar range on norm data by `Jaakko Leppakangas`_
 
-- Fix bug in :func:`mne.preprocessing.run_ica`, which used the ``ecg_criterion`` parameter for the EOG criterion instead of ``eog_criterion`` by `Christian Brodbeck`_
+- Fix bug in ``mne.preprocessing.run_ica``, which used the ``ecg_criterion`` parameter for the EOG criterion instead of ``eog_criterion`` by `Christian Brodbeck`_
 
 - Fix normals in CTF data reader by `Eric Larson`_
 
@@ -109,7 +109,7 @@ BUG
 
 - Fix bug in :class:`mne.Evoked` type setting in :func:`mne.stats.linear_regression_raw` by `Eric Larson`_
 
-- Fix bug in :class: `mne.io.edf.RawEDF` highpass filter setting to take max highpass to match warning message by `Teon Brooks`_
+- Fix bug in ``mne.io.edf.RawEDF`` highpass filter setting to take max highpass to match warning message by `Teon Brooks`_
 
 - Fix bugs with coordinane frame adjustments in ``mne.viz.plot_trans`` by `Eric Larson`_
 
@@ -136,9 +136,9 @@ BUG
 API
 ~~~
 
-- The default `picks=None` in :func:`mne.viz.plot_epochs_image` now only plots the first 5 channels, not all channels, by `Jona Sassenhagen`_
+- The default ``picks=None`` in :func:`mne.viz.plot_epochs_image` now only plots the first 5 channels, not all channels, by `Jona Sassenhagen`_
 
-- The ``mesh_color`` parameter in :func:`mne.viz.plot_dipole_locations` has been removed (use `brain_color` instead), by `Marijn van Vliet`_
+- The ``mesh_color`` parameter in :func:`mne.viz.plot_dipole_locations` has been removed (use ``brain_color`` instead), by `Marijn van Vliet`_
 
 - Deprecated functions ``mne.time_frequency.compute_raw_psd`` and ``mne.time_frequency.compute_epochs_psd``, replaced by :func:`mne.time_frequency.psd_welch` by `Chris Holdgraf`_
 
@@ -164,7 +164,7 @@ API
 
 - Subselecting channels can now emit a warning if many channels have been subselected from projection vectors. We recommend only computing projection vertors for and applying projectors to channels that will be used in the final analysis. However, after picking a subset of channels, projection vectors can be renormalized with :func:`mne.Info.normalize_proj` if necessary to avoid warnings about subselection. Changes by `Eric Larson`_ and `Alex Gramfort`_.
 
-- Rename and deprecate ``mne.Epochs.drop_bad_epochs`` to :func:`mne.Epochs.drop_bad`, and `mne.Epochs.drop_epochs`` to :func:`mne.Epochs.drop` by `Alex Gramfort`_.
+- Rename and deprecate ``mne.Epochs.drop_bad_epochs`` to :func:`mne.Epochs.drop_bad`, and ``mne.Epochs.drop_epochs`` to :func:`mne.Epochs.drop` by `Alex Gramfort`_.
 
 - The C wrapper ``mne.do_forward_solution`` has been deprecated in favor of the native Python version :func:`mne.make_forward_solution` by `Eric Larson`_
 

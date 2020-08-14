@@ -22,6 +22,7 @@ from mne.io.tests.test_raw import _test_raw_reader
 from mne.datasets import testing
 from mne.utils import requires_h5py, run_tests_if_main
 from mne.annotations import events_from_annotations, read_annotations
+from mne.io.eeglab.tests._utils import _read_eeglab_montage
 
 base_dir = op.join(testing.data_path(download=False), 'EEGLAB')
 
@@ -42,7 +43,7 @@ epochs_h5_fnames = [epochs_fname_h5, epochs_fname_onefile_h5]
 
 raw_fnames = [raw_fname_mat, raw_fname_onefile_mat,
               raw_fname_h5, raw_fname_onefile_h5]
-montage = op.join(base_dir, 'test_chans.locs')
+montage_path = op.join(base_dir, 'test_chans.locs')
 
 
 def _check_h5(fname):
@@ -55,36 +56,38 @@ def _check_h5(fname):
 
 @requires_h5py
 @testing.requires_testing_data
+@pytest.mark.slowtest
 @pytest.mark.parametrize(
     'fname', [raw_fname_mat, raw_fname_h5], ids=op.basename
 )
 def test_io_set_raw(fname):
     """Test importing EEGLAB .set files."""
-    _test_raw_reader(read_raw_eeglab, input_fname=fname,
-                     montage=montage)
+    montage = _read_eeglab_montage(montage_path)
+    montage.ch_names = [
+        'EEG {0:03d}'.format(ii) for ii in range(len(montage.ch_names))
+    ]
+
+    _test_raw_reader(read_raw_eeglab, input_fname=fname)
     # test that preloading works
     raw0 = read_raw_eeglab(input_fname=fname, preload=True)
-    if montage is not None:
-        raw0.set_montage(montage, update_ch_names=True)
+    raw0.set_montage(montage)
     raw0.filter(1, None, l_trans_bandwidth='auto', filter_length='auto',
                 phase='zero')
 
     # test that using uint16_codec does not break stuff
     raw0 = read_raw_eeglab(input_fname=fname,
                            preload=False, uint16_codec='ascii')
-    if montage is not None:
-        raw0.set_montage(montage, update_ch_names=True)
+    raw0.set_montage(montage)
 
 
 @testing.requires_testing_data
 def test_io_set_raw_more(tmpdir):
     """Test importing EEGLAB .set files."""
     tmpdir = str(tmpdir)
-    # test reading file with one event (read old version)
     eeg = io.loadmat(raw_fname_mat, struct_as_record=False,
                      squeeze_me=True)['EEG']
 
-    # test negative event latencies
+    # test reading file with one event (read old version)
     negative_latency_fname = op.join(tmpdir, 'test_negative_latency.set')
     evnts = deepcopy(eeg.event[0])
     evnts.latency = 0
@@ -100,6 +103,7 @@ def test_io_set_raw_more(tmpdir):
     with pytest.warns(RuntimeWarning, match="has a sample index of -1."):
         read_raw_eeglab(input_fname=negative_latency_fname, preload=True)
 
+    # test negative event latencies
     evnts.latency = -1
     io.savemat(negative_latency_fname,
                {'EEG': {'trials': eeg.trials, 'srate': eeg.srate,
@@ -123,6 +127,30 @@ def test_io_set_raw_more(tmpdir):
                appendmat=False, oned_as='row')
     shutil.copyfile(op.join(base_dir, 'test_raw.fdt'),
                     overlap_fname.replace('.set', '.fdt'))
+    read_raw_eeglab(input_fname=overlap_fname, preload=True)
+
+    # test reading file when the EEG.data name is wrong
+    io.savemat(overlap_fname,
+               {'EEG': {'trials': eeg.trials, 'srate': eeg.srate,
+                        'nbchan': eeg.nbchan, 'data': 'test_overla_event.fdt',
+                        'epoch': eeg.epoch,
+                        'event': [eeg.event[0], eeg.event[0]],
+                        'chanlocs': eeg.chanlocs, 'pnts': eeg.pnts}},
+               appendmat=False, oned_as='row')
+    with pytest.warns(RuntimeWarning, match="must have changed on disk"):
+        read_raw_eeglab(input_fname=overlap_fname, preload=True)
+
+    # raise error when both EEG.data and fdt name from set are wrong
+    overlap_fname = op.join(tmpdir, 'test_ovrlap_event.set')
+    io.savemat(overlap_fname,
+               {'EEG': {'trials': eeg.trials, 'srate': eeg.srate,
+                        'nbchan': eeg.nbchan, 'data': 'test_overla_event.fdt',
+                        'epoch': eeg.epoch,
+                        'event': [eeg.event[0], eeg.event[0]],
+                        'chanlocs': eeg.chanlocs, 'pnts': eeg.pnts}},
+               appendmat=False, oned_as='row')
+    with pytest.raises(FileNotFoundError, match="not find the .fdt data file"):
+        read_raw_eeglab(input_fname=overlap_fname, preload=True)
 
     # test reading file with one channel
     one_chan_fname = op.join(tmpdir, 'test_one_channel.set')
@@ -177,6 +205,7 @@ def test_io_set_raw_more(tmpdir):
                            np.array([np.nan, np.nan, np.nan]))
 
 
+@pytest.mark.slowtest  # slow-ish on Travis OSX
 @pytest.mark.timeout(60)  # ~60 sec on Travis OSX
 @requires_h5py
 @testing.requires_testing_data
@@ -198,7 +227,7 @@ def test_io_set_epochs_events(tmpdir):
     """Test different combinations of events and event_ids."""
     tmpdir = str(tmpdir)
     out_fname = op.join(tmpdir, 'test-eve.fif')
-    events = np.array([[4, 0, 1], [12, 0, 2], [20, 0, 3], [26, 0,  3]])
+    events = np.array([[4, 0, 1], [12, 0, 2], [20, 0, 3], [26, 0, 3]])
     write_events(out_fname, events)
     event_id = {'S255/S8': 1, 'S8': 2, 'S255/S9': 3}
     out_fname = op.join(tmpdir, 'test-eve.fif')
@@ -236,6 +265,7 @@ def test_degenerate(tmpdir):
 
 
 @pytest.mark.parametrize("fname", raw_fnames)
+@pytest.mark.filterwarnings('ignore: Complex objects')
 @testing.requires_testing_data
 def test_eeglab_annotations(fname):
     """Test reading annotations in EEGLAB files."""
@@ -269,11 +299,8 @@ def test_eeglab_event_from_annot():
     base_dir = op.join(testing.data_path(download=False), 'EEGLAB')
     raw_fname_mat = op.join(base_dir, 'test_raw.set')
     raw_fname = raw_fname_mat
-    montage = op.join(base_dir, 'test_chans.locs')
     event_id = {'rt': 1, 'square': 2}
     raw1 = read_raw_eeglab(input_fname=raw_fname, preload=False)
-    if montage is not None:
-        raw1.set_montage(montage, update_ch_names=True)
 
     annotations = read_annotations(raw_fname)
     assert len(raw1.annotations) == 154
@@ -305,8 +332,8 @@ def one_chanpos_fname(tmpdir_factory):
         'srate': 128, 'times': np.array([0., 0.1, 0.2]),
         'data': np.empty([3, 3]),
         'chanlocs': np.array(
-            [(b'F3',  1.,  4.,  7.),
-             (b'unknown',  2.,  5.,  8.),
+            [(b'F3', 1., 4., 7.),
+             (b'unknown', 2., 5., 8.),
              (b'FPz', np.nan, np.nan, np.nan)],
             dtype=[('labels', 'S10'), ('X', 'f8'), ('Y', 'f8'), ('Z', 'f8')]
         )
@@ -319,54 +346,39 @@ def one_chanpos_fname(tmpdir_factory):
 
 
 @testing.requires_testing_data
-@pytest.mark.filterwarnings('ignore:.*did not have a position.*')
 def test_position_information(one_chanpos_fname):
     """Test reading file with 3 channels - one without position information."""
     nan = np.nan
     EXPECTED_LOCATIONS_FROM_FILE = np.array([
-        [-4.,  1.,  7.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.],
-        [-5.,  2.,  8.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.],
+        [-4.,  1.,  7.,  0.,  0.,  0., nan, nan, nan, nan, nan, nan],
+        [-5.,  2.,  8.,  0.,  0.,  0., nan, nan, nan, nan, nan, nan],
         [nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan],
     ])
 
     EXPECTED_LOCATIONS_FROM_MONTAGE = np.array([
-        [-0.56705965, 0.67706631, 0.46906776, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         [nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan],
-        [0, 0.99977915, -0.02101571, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan],
     ])
 
     raw = read_raw_eeglab(input_fname=one_chanpos_fname, preload=True)
     assert_array_equal(np.array([ch['loc'] for ch in raw.info['chs']]),
                        EXPECTED_LOCATIONS_FROM_FILE)
 
-    raw = read_raw_eeglab(input_fname=one_chanpos_fname, preload=True)
-    if montage is not None:
-        raw.set_montage(None)  # flushing
-        raw.set_montage(montage, update_ch_names=False)
-    _assert_array_allclose_nan(np.array([ch['loc'] for ch in raw.info['chs']]),
-                               EXPECTED_LOCATIONS_FROM_MONTAGE)
-
-    # To acomodate the new behavior so that:
+    # To accommodate the new behavior so that:
     # read_raw_eeglab(.. montage=montage) and raw.set_montage(montage)
     # behaves the same we need to flush the montage. otherwise we get
     # a mix of what is in montage and in the file
+    raw = read_raw_eeglab(
+        input_fname=one_chanpos_fname,
+        preload=True,
+    ).set_montage(None)  # Flush the montage builtin within input_fname
 
-    foo = read_raw_eeglab(input_fname=one_chanpos_fname, preload=True)
-    foo.set_montage(None)  # flushing
-    foo.set_montage(montage, update_ch_names=False)
-    _assert_array_allclose_nan(np.array([ch['loc'] for ch in foo.info['chs']]),
+    _assert_array_allclose_nan(np.array([ch['loc'] for ch in raw.info['chs']]),
                                EXPECTED_LOCATIONS_FROM_MONTAGE)
 
-    # Mixed montage: from the file and from montage
-    foo = read_raw_eeglab(input_fname=one_chanpos_fname, preload=True)
-    foo.set_montage(montage, update_ch_names=False)
-    mixed = np.array([
-        [-0.56705965, 0.67706631, 0.46906776, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [-5., 2., 8., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-        [0, 0.99977915, -0.02101571, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    ])
-    _assert_array_allclose_nan(np.array([ch['loc'] for ch in foo.info['chs']]),
-                               mixed)
+    _assert_array_allclose_nan(np.array([ch['loc'] for ch in raw.info['chs']]),
+                               EXPECTED_LOCATIONS_FROM_MONTAGE)
 
 
 run_tests_if_main()

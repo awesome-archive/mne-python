@@ -5,6 +5,7 @@
 #          Marijn van Vliet <w.m.vanvliet@gmail.com>
 #          Jona Sassenhagen <jona.sassenhagen@gmail.com>
 #          Teon Brooks <teon.brooks@gmail.com>
+#          Robert Luke <mail@robertluke.net>
 #
 # License: Simplified BSD
 
@@ -16,11 +17,11 @@ import os.path as op
 import numpy as np
 
 from ..transforms import _pol_to_cart, _cart_to_sph
-from ..bem import fit_sphere_to_headshape
 from ..io.pick import pick_types, _picks_to_idx
 from ..io.constants import FIFF
 from ..io.meas_info import Info
-from ..utils import _clean_names, warn, _check_ch_locs, fill_doc, _check_option
+from ..utils import (_clean_names, warn, _check_ch_locs, fill_doc,
+                     _check_option, _check_sphere)
 from .channels import _get_ch_info
 
 
@@ -125,7 +126,7 @@ def _read_lout(fname):
                 name = chkind + ' ' + nb
             else:
                 cid, x, y, dx, dy, name = splits
-            pos.append(np.array([x, y, dx, dy], dtype=np.float))
+            pos.append(np.array([x, y, dx, dy], dtype=np.float64))
             names.append(name)
             ids.append(int(cid))
 
@@ -146,7 +147,7 @@ def _read_lay(fname):
                 name = chkind + ' ' + nb
             else:
                 cid, x, y, dx, dy, name = splits
-            pos.append(np.array([x, y, dx, dy], dtype=np.float))
+            pos.append(np.array([x, y, dx, dy], dtype=np.float64))
             names.append(name)
             ids.append(int(cid))
 
@@ -213,7 +214,8 @@ def read_layout(kind, path=None, scale=True):
     return Layout(box=box, pos=pos, names=names, kind=kind, ids=ids)
 
 
-def make_eeg_layout(info, radius=0.5, width=None, height=None, exclude='bads'):
+def make_eeg_layout(info, radius=0.5, width=None, height=None, exclude='bads',
+                    csd=False):
     """Create .lout file from EEG electrode digitization.
 
     Parameters
@@ -228,9 +230,11 @@ def make_eeg_layout(info, radius=0.5, width=None, height=None, exclude='bads'):
     height : float | None
         Height of sensor axes as a fraction of main figure height. By default,
         this will be the maximum height possible without axes overlapping.
-    exclude : list of string | str
+    exclude : list of str | str
         List of channels to exclude. If empty do not exclude any.
         If 'bads', exclude channels in info['bads'] (default).
+    csd : bool
+        Whether the channels contain current-source-density-transformed data.
 
     Returns
     -------
@@ -248,15 +252,17 @@ def make_eeg_layout(info, radius=0.5, width=None, height=None, exclude='bads'):
     if height is not None and not (0 <= height <= 1.0):
         raise ValueError('The height parameter should be between 0 and 1.')
 
-    picks = pick_types(info, meg=False, eeg=True, ref_meg=False,
-                       exclude=exclude)
-    loc2d = _auto_topomap_coords(info, picks)
+    pick_kwargs = dict(meg=False, eeg=True, ref_meg=False, exclude=exclude)
+    if csd:
+        pick_kwargs.update(csd=True, eeg=False)
+    picks = pick_types(info, **pick_kwargs)
+    loc2d = _find_topomap_coords(info, picks)
     names = [info['chs'][i]['ch_name'] for i in picks]
 
-    # Scale [x, y] to [-0.5, 0.5]
-    loc2d_min = np.min(loc2d, axis=0)
-    loc2d_max = np.max(loc2d, axis=0)
-    loc2d = (loc2d - (loc2d_max + loc2d_min) / 2.) / (loc2d_max - loc2d_min)
+    # Scale [x, y] to be in the range [-0.5, 0.5]
+    # Don't mess with the origin or aspect ratio
+    scale = np.maximum(-np.min(loc2d, axis=0), np.max(loc2d, axis=0)).max() * 2
+    loc2d /= scale
 
     # If no width or height specified, calculate the maximum value possible
     # without axes overlapping.
@@ -371,9 +377,9 @@ def find_layout(info, ch_type=None, exclude='bads'):
     ch_type : {'mag', 'grad', 'meg', 'eeg'} | None
         The channel type for selecting single channel layouts.
         Defaults to None. Note, this argument will only be considered for
-        VectorView type layout. Use `meg` to force using the full layout
+        VectorView type layout. Use ``'meg'`` to force using the full layout
         in situations where the info does only contain one sensor type.
-    exclude : list of string | str
+    exclude : list of str | str
         List of channels to exclude. If empty do not exclude any.
         If 'bads', exclude channels in info['bads'] (default).
 
@@ -382,12 +388,13 @@ def find_layout(info, ch_type=None, exclude='bads'):
     layout : Layout instance | None
         None if layout not found.
     """
-    _check_option('ch_type', ch_type, [None, 'mag', 'grad', 'meg', 'eeg'])
+    _check_option('ch_type', ch_type, [None, 'mag', 'grad', 'meg', 'eeg',
+                                       'csd'])
 
     (has_vv_mag, has_vv_grad, is_old_vv, has_4D_mag, ctf_other_types,
      has_CTF_grad, n_kit_grads, has_any_meg, has_eeg_coils,
      has_eeg_coils_and_meg, has_eeg_coils_only,
-     has_neuromag_122_grad) = _get_ch_info(info)
+     has_neuromag_122_grad, has_csd_coils) = _get_ch_info(info)
     has_vv_meg = has_vv_mag and has_vv_grad
     has_vv_only_mag = has_vv_mag and not has_vv_grad
     has_vv_only_grad = has_vv_grad and not has_vv_mag
@@ -397,6 +404,7 @@ def find_layout(info, ch_type=None, exclude='bads'):
     if ch_type == "eeg" and not has_eeg_coils:
         raise RuntimeError('No EEG channels present. Cannot find EEG layout.')
 
+    layout_name = None
     if ((has_vv_meg and ch_type is None) or
             (any([has_vv_mag, has_vv_grad]) and ch_type == 'meg')):
         layout_name = 'Vectorview-all'
@@ -415,17 +423,22 @@ def find_layout(info, ch_type=None, exclude='bads'):
             raise RuntimeError('Cannot make EEG layout, no measurement info '
                                'was passed to `find_layout`')
         return make_eeg_layout(info, exclude=exclude)
+    elif has_csd_coils and ch_type in [None, 'csd']:
+        return make_eeg_layout(info, exclude=exclude, csd=True)
     elif has_4D_mag:
         layout_name = 'magnesWH3600'
     elif has_CTF_grad:
         layout_name = 'CTF-275'
     elif n_kit_grads > 0:
         layout_name = _find_kit_layout(info, n_kit_grads)
-    else:
-        xy = _auto_topomap_coords(info, picks=range(info['nchan']),
-                                  ignore_overlap=True, to_sphere=False)
-        return generate_2d_layout(xy, ch_names=info['ch_names'], name='custom',
-                                  normalize=False)
+
+    # If no known layout is found, fall back on automatic layout
+    if layout_name is None:
+        picks = _picks_to_idx(info, 'data', exclude=(), with_ref_meg=False)
+        ch_names = [info['ch_names'][pick] for pick in picks]
+        xy = _find_topomap_coords(info, picks=picks, ignore_overlap=True)
+        return generate_2d_layout(xy, ch_names=ch_names, name='custom',
+                                  normalize=True)
 
     layout = read_layout(layout_name)
     if not is_old_vv:
@@ -456,26 +469,17 @@ def _find_kit_layout(info, n_grads):
 
     Returns
     -------
-    kit_layout : str
-        One of 'KIT-AD', 'KIT-157', 'KIT-160', or 'KIT-UMD'.
+    kit_layout : str | None
+        String naming the detected KIT layout or ``None`` if layout is missing.
     """
     if info['kit_system_id'] is not None:
         # avoid circular import
         from ..io.kit.constants import KIT_LAYOUT
-
-        if info['kit_system_id'] in KIT_LAYOUT:
-            kit_layout = KIT_LAYOUT[info['kit_system_id']]
-            if kit_layout is not None:
-                return kit_layout
-        raise NotImplementedError("The layout for the KIT system with ID %i "
-                                  "is missing. Please contact the developers "
-                                  "about adding it." % info['kit_system_id'])
+        return KIT_LAYOUT.get(info['kit_system_id'])
     elif n_grads == 160:
         return 'KIT-160'
-
     elif n_grads == 125:
         return 'KIT-125'
-
     elif n_grads > 157:
         return 'KIT-AD'
 
@@ -588,7 +592,8 @@ def _box_size(points, width=None, height=None, padding=0.0):
     return width, height
 
 
-def _find_topomap_coords(info, picks, layout=None):
+def _find_topomap_coords(info, picks, layout=None, ignore_overlap=False,
+                         to_sphere=True, sphere=None):
     """Guess the E/MEG layout and return appropriate topomap coordinates.
 
     Parameters
@@ -601,6 +606,8 @@ def _find_topomap_coords(info, picks, layout=None):
         Enforce using a specific layout. With None, a new map is generated
         and a layout is chosen based on the channels in the picks
         parameter.
+    sphere : array-like | str
+        Definition of the head sphere.
 
     Returns
     -------
@@ -614,12 +621,14 @@ def _find_topomap_coords(info, picks, layout=None):
         pos = [layout.pos[layout.names.index(ch['ch_name'])] for ch in chs]
         pos = np.asarray(pos)
     else:
-        pos = _auto_topomap_coords(info, picks)
+        pos = _auto_topomap_coords(
+            info, picks, ignore_overlap=ignore_overlap, to_sphere=to_sphere,
+            sphere=sphere)
 
     return pos
 
 
-def _auto_topomap_coords(info, picks, ignore_overlap=False, to_sphere=True):
+def _auto_topomap_coords(info, picks, ignore_overlap, to_sphere, sphere):
     """Make a 2 dimensional sensor map from sensor positions in an info dict.
 
     The default is to use the electrode locations. The fallback option is to
@@ -637,7 +646,9 @@ def _auto_topomap_coords(info, picks, ignore_overlap=False, to_sphere=True):
         positions overlap, an error is thrown.
     to_sphere : bool
         If True, the radial distance of spherical coordinates is ignored, in
-        effect fitting the xyz-coordinates to a sphere. Defaults to True.
+        effect fitting the xyz-coordinates to a sphere.
+    sphere : array-like | str
+        The head sphere definition.
 
     Returns
     -------
@@ -645,6 +656,7 @@ def _auto_topomap_coords(info, picks, ignore_overlap=False, to_sphere=True):
         An array of positions of the 2 dimensional map.
     """
     from scipy.spatial.distance import pdist, squareform
+    sphere = _check_sphere(sphere, info)
 
     picks = _picks_to_idx(info, picks, 'all', exclude=(), allow_empty=False)
     chs = [info['chs'][i] for i in picks]
@@ -688,17 +700,16 @@ def _auto_topomap_coords(info, picks, ignore_overlap=False, to_sphere=True):
                              "doesn't match the number of EEG channels "
                              "(%d)" % (len(locs3d), len(eeg_ch_names)))
 
-        # Center digitization points on head origin
-        dig_kinds = (FIFF.FIFFV_POINT_CARDINAL,
-                     FIFF.FIFFV_POINT_EEG,
-                     FIFF.FIFFV_POINT_EXTRA)
-        _, origin_head, _ = fit_sphere_to_headshape(info, dig_kinds, units='m')
-        locs3d -= origin_head
+        # We no longer center digitization points on head origin, as we work
+        # in head coordinates always
 
         # Match the digitization points with the requested
         # channels.
         eeg_ch_locs = dict(zip(eeg_ch_names, locs3d))
         locs3d = np.array([eeg_ch_locs[ch['ch_name']] for ch in chs])
+
+    # Sometimes we can get nans
+    locs3d[~np.isfinite(locs3d)] = 0.
 
     # Duplicate points cause all kinds of trouble during visualization
     dist = pdist(locs3d)
@@ -713,9 +724,16 @@ def _auto_topomap_coords(info, picks, ignore_overlap=False, to_sphere=True):
                          ', '.join(problematic_electrodes))
 
     if to_sphere:
+        # translate to sphere origin, transform/flatten Z, translate back
+        locs3d -= sphere[:3]
         # use spherical (theta, pol) as (r, theta) for polar->cartesian
-        return _pol_to_cart(_cart_to_sph(locs3d)[:, 1:][:, ::-1])
-    return _pol_to_cart(_cart_to_sph(locs3d))
+        out = _pol_to_cart(_cart_to_sph(locs3d)[:, 1:][:, ::-1])
+        # scale from radians to mm
+        out *= (sphere[3] / (np.pi / 2.))
+        out += sphere[:2]
+    else:
+        out = _pol_to_cart(_cart_to_sph(locs3d))
+    return out
 
 
 def _topo_to_sphere(pos, eegs):
@@ -783,8 +801,7 @@ def _pair_grad_sensors(info, layout=None, topomap_coords=True, exclude='bads',
     pairs = defaultdict(list)
     grad_picks = pick_types(info, meg='grad', ref_meg=False, exclude=exclude)
 
-    (_, has_vv_grad, _, _, _, _, _, _, _, _, _, has_neuromag_122_grad) = \
-        _get_ch_info(info)
+    _, has_vv_grad, *_, has_neuromag_122_grad, _ = _get_ch_info(info)
 
     for i in grad_picks:
         ch = info['chs'][i]
@@ -874,6 +891,35 @@ def _pair_grad_sensors_ch_names_neuromag122(ch_names):
     return grad_chs
 
 
+def _merge_ch_data(data, ch_type, names, method='rms'):
+    """Merge data from channel pairs.
+
+    Parameters
+    ----------
+    data : array, shape = (n_channels, ..., n_times)
+        Data for channels, ordered in pairs.
+    ch_type : str
+        Channel type.
+    names : list
+        List of channel names.
+    method : str
+        Can be 'rms' or 'mean'.
+
+    Returns
+    -------
+    data : array, shape = (n_channels / 2, ..., n_times)
+        The root mean square or mean for each pair.
+    names : list
+        List of channel names.
+    """
+    if ch_type == 'grad':
+        data = _merge_grad_data(data, method)
+    else:
+        assert ch_type in ('hbo', 'hbr', 'fnirs_cw_amplitude', 'fnirs_od')
+        data, names = _merge_nirs_data(data, names)
+    return data, names
+
+
 def _merge_grad_data(data, method='rms'):
     """Merge data from channel pairs using the RMS or mean.
 
@@ -897,6 +943,42 @@ def _merge_grad_data(data, method='rms'):
     else:
         raise ValueError('method must be "rms" or "mean", got %s.' % method)
     return data.reshape(data.shape[:1] + orig_shape[1:])
+
+
+def _merge_nirs_data(data, merged_names):
+    """Merge data from multiple nirs channel using the mean.
+
+    Channel names that have an x in them will be merged. The first channel in
+    the name is replaced with the mean of all listed channels. The other
+    channels are removed.
+
+    Parameters
+    ----------
+    data : array, shape = (n_channels, ..., n_times)
+        Data for channels.
+    merged_names : list
+        List of strings containing the channel names. Channels that are to be
+        merged contain an x between them.
+
+    Returns
+    -------
+    data : array
+        Data for channels with requested channels merged. Channels used in the
+        merge are removed from the array.
+    """
+    to_remove = np.empty(0, dtype=np.int32)
+    for idx, ch in enumerate(merged_names):
+        if 'x' in ch:
+            indices = np.empty(0, dtype=np.int32)
+            channels = ch.split("x")
+            for sub_ch in channels[1:]:
+                indices = np.append(indices, merged_names.index(sub_ch))
+            data[idx] = np.mean(data[np.append(idx, indices)], axis=0)
+            to_remove = np.append(to_remove, indices)
+    for rem in sorted(to_remove, reverse=True):
+        del merged_names[rem]
+        data = np.delete(data, rem, 0)
+    return data, merged_names
 
 
 def generate_2d_layout(xy, w=.07, h=.05, pad=.02, ch_names=None,

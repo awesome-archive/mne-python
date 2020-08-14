@@ -143,7 +143,7 @@ def data_fun(times, latency, duration):
 # event, the second is not used. The third one is the event id, which is
 # different for each of the 4 areas.
 
-times = np.arange(150, dtype=np.float) / info['sfreq']
+times = np.arange(150, dtype=np.float64) / info['sfreq']
 duration = 0.03
 rng = np.random.RandomState(7)
 source_simulator = mne.simulation.SourceSimulator(src, tstep=tstep)
@@ -186,8 +186,7 @@ stc_data = source_simulator.get_stc()
 # The :class:`~mne.simulation.SourceSimulator` can be given directly to the
 # :func:`~mne.simulation.simulate_raw` function.
 
-raw_sim = mne.simulation.simulate_raw(info, source_simulator, forward=fwd,
-                                      cov=None)
+raw_sim = mne.simulation.simulate_raw(info, source_simulator, forward=fwd)
 raw_sim.set_eeg_reference(projection=True)
 
 mne.simulation.add_noise(raw_sim, cov=noise_cov, random_state=0)

@@ -1,5 +1,6 @@
 """IIR and FIR filtering and resampling functions."""
 
+from collections import Counter
 from copy import deepcopy
 from functools import partial
 
@@ -9,11 +10,12 @@ from .annotations import _annotations_starts_stops
 from .io.pick import _picks_to_idx
 from .cuda import (_setup_cuda_fft_multiply_repeated, _fft_multiply_repeated,
                    _setup_cuda_fft_resample, _fft_resample, _smart_pad)
-from .fixes import minimum_phase, _sosfreqz, irfft, ifftshift, fftfreq
+from .fixes import irfft, ifftshift, fftfreq
 from .parallel import parallel_func, check_n_jobs
 from .time_frequency.multitaper import _mt_spectra, _compute_mt_params
 from .utils import (logger, verbose, sum_squared, check_version, warn, _pl,
-                    _check_preload, _validate_type, _check_option)
+                    _check_preload, _validate_type, _check_option, _ensure_int)
+from ._ola import _COLA
 
 # These values from Ifeachor and Jervis.
 _length_factors = dict(hann=3.1, hamming=3.3, blackman=5.0)
@@ -179,7 +181,7 @@ def _overlap_add_filter(x, h, n_fft=None, phase='zero', picks=None,
             # cost function based on number of multiplications
             N = 2 ** np.arange(np.ceil(np.log2(min_fft)),
                                np.ceil(np.log2(max_fft)) + 1, dtype=int)
-            cost = (np.ceil(n_x / (N - len(h) + 1).astype(np.float)) *
+            cost = (np.ceil(n_x / (N - len(h) + 1).astype(np.float64)) *
                     N * (np.log2(N) + 1))
 
             # add a heuristic term to prevent too-long FFT's which are slow
@@ -288,6 +290,7 @@ def _firwin_design(N, freq, gain, window, sfreq):
     assert freq[0] == 0
     assert len(freq) > 1
     assert len(freq) == len(gain)
+    assert N % 2 == 1
     h = np.zeros(N)
     prev_freq = freq[-1]
     prev_gain = gain[-1]
@@ -309,6 +312,7 @@ def _firwin_design(N, freq, gain, window, sfreq):
             # Construct a lowpass
             this_h = firwin(this_N, (prev_freq + this_freq) / 2.,
                             window=window, pass_zero=True, nyq=freq[-1])
+            assert this_h.shape == (this_N,)
             offset = (N - this_N) // 2
             if this_gain == 0:
                 h[offset:N - offset] -= this_h
@@ -363,6 +367,7 @@ def _construct_fir_filter(sfreq, freq, gain, filter_length, phase, fir_window,
     else:
         assert fir_design == 'firwin'
         fir_design = partial(_firwin_design, sfreq=sfreq)
+    from scipy.signal import minimum_phase
 
     # issue a warning if attenuation is less than this
     min_att_db = 12 if phase == 'minimum' else 20
@@ -616,15 +621,15 @@ def construct_iir_filter(iir_params, f_pass=None, f_stop=None, sfreq=None,
     a 10-sample moving window with no padding during filtering, for example,
     one can just do:
 
-    >>> iir_params = dict(b=np.ones((10)), a=[1, 0], padlen=0)
-    >>> iir_params = construct_iir_filter(iir_params, return_copy=False)
+    >>> iir_params = dict(b=np.ones((10)), a=[1, 0], padlen=0)  # doctest:+SKIP
+    >>> iir_params = construct_iir_filter(iir_params, return_copy=False)  # doctest:+SKIP
     >>> print((iir_params['b'], iir_params['a'], iir_params['padlen']))  # doctest:+SKIP
     (array([1., 1., 1., 1., 1., 1., 1., 1., 1., 1.]), [1, 0], 0)
 
     For more information, see the tutorials
     :ref:`disc-filtering` and :ref:`tut-filter-resample`.
     """  # noqa: E501
-    from scipy.signal import iirfilter, iirdesign, freqz
+    from scipy.signal import iirfilter, iirdesign, freqz, sosfreqz
     known_filters = ('bessel', 'butter', 'butterworth', 'cauer', 'cheby1',
                      'cheby2', 'chebyshev1', 'chebyshev2', 'chebyshevi',
                      'chebyshevii', 'ellip', 'elliptic')
@@ -691,7 +696,7 @@ def construct_iir_filter(iir_params, f_pass=None, f_stop=None, sfreq=None,
     # get the gains at the cutoff frequencies
     if Wp is not None:
         if output == 'sos':
-            cutoffs = _sosfreqz(system, worN=Wp * np.pi)[1]
+            cutoffs = sosfreqz(system, worN=Wp * np.pi)[1]
         else:
             cutoffs = freqz(system[0], system[1], worN=Wp * np.pi)[1]
         # 2 * 20 here because we do forward-backward filtering
@@ -891,7 +896,6 @@ def create_filter(data, sfreq, l_freq, h_freq, filter_length='auto',
         * Fs1 = Fp1 - l_trans_bandwidth in Hz
         * Fs2 = Fp2 + h_trans_bandwidth in Hz
 
-
     **Band-stop filter**
 
     The frequency response is (approximately) given by::
@@ -1070,7 +1074,8 @@ def notch_filter(x, Fs, freqs, filter_length='auto', notch_widths=None,
                  trans_bandwidth=1, method='fir', iir_params=None,
                  mt_bandwidth=None, p_value=0.05, picks=None, n_jobs=1,
                  copy=True, phase='zero', fir_window='hamming',
-                 fir_design='firwin', pad='reflect_limited', verbose=None):
+                 fir_design='firwin', pad='reflect_limited',
+                 verbose=None):
     r"""Notch filter for the signal x.
 
     Applies a zero-phase notch filter to the signal x, operating on the last
@@ -1086,7 +1091,7 @@ def notch_filter(x, Fs, freqs, filter_length='auto', notch_widths=None,
         Frequencies to notch filter in Hz, e.g. np.arange(60, 241, 60).
         None can only be used with the mode 'spectrum_fit', where an F
         test is used to find sinusoidal components.
-    %(filter_length)s
+    %(filter_length_notch)s
     notch_widths : float | array of float | None
         Width of the stop band (centred at each freq in freqs) in Hz.
         If None, freqs / 200 is used.
@@ -1103,7 +1108,7 @@ def notch_filter(x, Fs, freqs, filter_length='auto', notch_widths=None,
         The bandwidth of the multitaper windowing function in Hz.
         Only used in 'spectrum_fit' mode.
     p_value : float
-        p-value to use in F-test thresholding to determine significant
+        P-value to use in F-test thresholding to determine significant
         sinusoidal components to remove when method='spectrum_fit' and
         freqs=None. Note that this will be Bonferroni corrected for the
         number of frequencies, so large p-values may be justified.
@@ -1123,7 +1128,7 @@ def notch_filter(x, Fs, freqs, filter_length='auto', notch_widths=None,
     Returns
     -------
     xf : array
-        x filtered.
+        The x array filtered.
 
     See Also
     --------
@@ -1187,76 +1192,120 @@ def notch_filter(x, Fs, freqs, filter_length='auto', notch_widths=None,
                          fir_design, pad=pad)
     elif method == 'spectrum_fit':
         xf = _mt_spectrum_proc(x, Fs, freqs, notch_widths, mt_bandwidth,
-                               p_value, picks, n_jobs, copy)
+                               p_value, picks, n_jobs, copy, filter_length)
 
     return xf
 
 
-def _mt_spectrum_proc(x, sfreq, line_freqs, notch_widths, mt_bandwidth,
-                      p_value, picks, n_jobs, copy):
-    """Call _mt_spectrum_remove."""
-    from scipy import stats
-    # set up array for filtering, reshape to 2D, operate on last axis
-    n_jobs = check_n_jobs(n_jobs)
-    x, orig_shape, picks = _prep_for_filtering(x, copy, picks)
-
-    # XXX need to implement the moving window version for raw files
-    n_times = x.shape[1]
-
+def _get_window_thresh(n_times, sfreq, mt_bandwidth, p_value):
     # max taper size chosen because it has an max error < 1e-3:
     # >>> np.max(np.diff(dpss_windows(953, 4, 100)[0]))
     # 0.00099972447657578449
     # so we use 1000 because it's the first "nice" number bigger than 953.
     # but if we have a new enough scipy,
     # it's only ~0.175 sec for 8 tapers even with 100000 samples
+    from scipy import stats
     dpss_n_times_max = 100000 if check_version('scipy', '1.1') else 1000
 
     # figure out what tapers to use
-    window_fun, eigvals, _ = _compute_mt_params(
+    window_fun, _, _ = _compute_mt_params(
         n_times, sfreq, mt_bandwidth, False, False,
         interp_from=min(n_times, dpss_n_times_max), verbose=False)
 
     # F-stat of 1-p point
     threshold = stats.f.ppf(1 - p_value / n_times, 2, 2 * len(window_fun) - 2)
+    return window_fun, threshold
 
+
+def _mt_spectrum_proc(x, sfreq, line_freqs, notch_widths, mt_bandwidth,
+                      p_value, picks, n_jobs, copy, filter_length):
+    """Call _mt_spectrum_remove."""
+    # set up array for filtering, reshape to 2D, operate on last axis
+    n_jobs = check_n_jobs(n_jobs)
+    x, orig_shape, picks = _prep_for_filtering(x, copy, picks)
+    if isinstance(filter_length, str) and filter_length == 'auto':
+        filter_length = None
+        warn('The default for "filter_length" when using method="spectrum_fit"'
+             ' is None in 0.21 but will change to 10. in 0.22, set it '
+             'explicitly to avoid this warning', DeprecationWarning)
+    if filter_length is None:
+        filter_length = x.shape[-1]
+    filter_length = min(_to_samples(filter_length, sfreq, '', ''), x.shape[-1])
+    get_wt = partial(
+        _get_window_thresh, sfreq=sfreq, mt_bandwidth=mt_bandwidth,
+        p_value=p_value)
+    window_fun, threshold = get_wt(filter_length)
     if n_jobs == 1:
         freq_list = list()
         for ii, x_ in enumerate(x):
             if ii in picks:
-                x[ii], f = _mt_spectrum_remove(x_, sfreq, line_freqs,
-                                               notch_widths, window_fun,
-                                               threshold)
+                x[ii], f = _mt_spectrum_remove_win(
+                    x_, sfreq, line_freqs, notch_widths, window_fun, threshold,
+                    get_wt)
                 freq_list.append(f)
     else:
-        parallel, p_fun, _ = parallel_func(_mt_spectrum_remove, n_jobs)
+        parallel, p_fun, _ = parallel_func(_mt_spectrum_remove_win, n_jobs)
         data_new = parallel(p_fun(x_, sfreq, line_freqs, notch_widths,
-                                  window_fun, threshold)
+                                  window_fun, threshold, get_wt)
                             for xi, x_ in enumerate(x)
                             if xi in picks)
         freq_list = [d[1] for d in data_new]
         data_new = np.array([d[0] for d in data_new])
         x[picks, :] = data_new
 
-    # report found frequencies
-    for rm_freqs in freq_list:
-        if line_freqs is None:
-            if len(rm_freqs) > 0:
-                logger.info('Detected notch frequencies:\n%s'
-                            % ', '.join([str(rm_f) for rm_f in rm_freqs]))
-            else:
-                logger.info('Detected notch frequecies:\nNone')
+    # report found frequencies, but do some sanitizing first by binning into
+    # 1 Hz bins
+    counts = Counter(sum((np.unique(np.round(ff)).tolist()
+                          for f in freq_list for ff in f), list()))
+    kind = 'Detected' if line_freqs is None else 'Removed'
+    found_freqs = '\n'.join(f'    {freq:6.2f} : '
+                            f'{counts[freq]:4d} window{_pl(counts[freq])}'
+                            for freq in sorted(counts)) or '    None'
+    logger.info(f'{kind} notch frequencies (Hz):\n{found_freqs}')
 
     x.shape = orig_shape
     return x
 
 
+def _mt_spectrum_remove_win(x, sfreq, line_freqs, notch_widths,
+                            window_fun, threshold, get_thresh):
+    n_times = x.shape[-1]
+    n_samples = window_fun.shape[1]
+    n_overlap = (n_samples + 1) // 2
+    x_out = np.zeros_like(x)
+    rm_freqs = list()
+    idx = [0]
+
+    # Define how to process a chunk of data
+    def process(x_):
+        out = _mt_spectrum_remove(
+            x_, sfreq, line_freqs, notch_widths, window_fun, threshold,
+            get_thresh)
+        rm_freqs.append(out[1])
+        return (out[0],)  # must return a tuple
+
+    # Define how to store a chunk of fully processed data (it's trivial)
+    def store(x_):
+        stop = idx[0] + x_.shape[-1]
+        x_out[..., idx[0]:stop] += x_
+        idx[0] = stop
+
+    _COLA(process, store, n_times, n_samples, n_overlap, sfreq,
+          verbose=False).feed(x)
+    assert idx[0] == n_times
+    return x_out, rm_freqs
+
+
 def _mt_spectrum_remove(x, sfreq, line_freqs, notch_widths,
-                        window_fun, threshold):
+                        window_fun, threshold, get_thresh):
     """Use MT-spectrum to remove line frequencies.
 
     Based on Chronux. If line_freqs is specified, all freqs within notch_width
     of each line_freq is set to zero.
     """
+    assert x.ndim == 1
+    if x.shape[-1] != window_fun.shape[-1]:
+        window_fun, threshold = get_thresh(x.shape[-1])
     # drop the even tapers
     n_tapers = len(window_fun)
     tapers_odd = np.arange(0, n_tapers, 2)
@@ -1303,8 +1352,7 @@ def _mt_spectrum_remove(x, sfreq, line_freqs, notch_widths,
         # specify frequencies
         indices_1 = np.unique([np.argmin(np.abs(freqs - lf))
                                for lf in line_freqs])
-        notch_widths /= 2.0
-        indices_2 = [np.logical_and(freqs > lf - nw, freqs < lf + nw)
+        indices_2 = [np.logical_and(freqs > lf - nw / 2., freqs < lf + nw / 2.)
                      for lf, nw in zip(line_freqs, notch_widths)]
         indices_2 = np.where(np.any(np.array(indices_2), axis=0))[0]
         indices = np.unique(np.r_[indices_1, indices_2])
@@ -1320,7 +1368,7 @@ def _mt_spectrum_remove(x, sfreq, line_freqs, notch_widths,
         datafit = 0.0
     else:
         # fitted sinusoids are summed, and subtracted from data
-        datafit = np.sum(np.atleast_2d(fits), axis=0)
+        datafit = np.sum(fits, axis=0)
 
     return x - datafit, rm_freqs
 
@@ -1331,6 +1379,11 @@ def _check_filterable(x, kind='filtered'):
         raise ValueError('Data to be %s must be real floating, got %s'
                          % (kind, x.dtype,))
     return x
+
+
+def _resamp_ratio_len(up, down, n):
+    ratio = float(up) / down
+    return ratio, int(round(ratio * n))
 
 
 @verbose
@@ -1362,7 +1415,7 @@ def resample(x, up=1., down=1., npad=100, axis=-1, window='boxcar', n_jobs=1,
     Returns
     -------
     y : array
-        x resampled.
+        The x array resampled.
 
     Notes
     -----
@@ -1388,7 +1441,8 @@ def resample(x, up=1., down=1., npad=100, axis=-1, window='boxcar', n_jobs=1,
 
     # make sure our arithmetic will work
     x = _check_filterable(x, 'resampled')
-    ratio = float(up) / down
+    ratio, final_len = _resamp_ratio_len(up, down, x.shape[axis])
+    del up, down
     if axis < 0:
         axis = x.ndim + axis
     orig_last_axis = x.ndim - 1
@@ -1418,7 +1472,6 @@ def resample(x, up=1., down=1., npad=100, axis=-1, window='boxcar', n_jobs=1,
     x_flat = x.reshape((-1, x_len))
     orig_len = x_len + npads.sum()  # length after padding
     new_len = int(round(ratio * orig_len))  # length after resampling
-    final_len = int(round(ratio * x_len))
     to_removes = [int(round(ratio * npads[0]))]
     to_removes.append(new_len - final_len - to_removes[0])
     to_removes = np.array(to_removes)
@@ -1458,6 +1511,7 @@ def resample(x, up=1., down=1., npad=100, axis=-1, window='boxcar', n_jobs=1,
     y.shape = orig_shape[:-1] + (y.shape[1],)
     if axis != orig_last_axis:
         y = y.swapaxes(axis, orig_last_axis)
+    assert y.shape[axis] == final_len
 
     return y
 
@@ -1525,17 +1579,18 @@ def detrend(x, order=1, axis=-1):
         Signal to detrend.
     order : int
         Fit order. Currently must be '0' or '1'.
-    axis : integer
+    axis : int
         Axis of the array to operate on.
 
     Returns
     -------
     y : array
-        x detrended.
+        The x array detrended.
 
     Examples
     --------
-    As in scipy.signal.detrend:
+    As in :func:`scipy.signal.detrend`::
+
         >>> randgen = np.random.RandomState(9)
         >>> npoints = int(1e3)
         >>> noise = randgen.randn(npoints)
@@ -1557,6 +1612,7 @@ def detrend(x, order=1, axis=-1):
 
     return y
 
+
 # Taken from Ifeachor and Jervis p. 356.
 # Note that here the passband ripple and stopband attenuation are
 # rendundant. The scalar passband ripple δp is expressed in dB as
@@ -1576,6 +1632,34 @@ _fir_design_dict = {
     'firwin': 'Windowed time-domain',
     'firwin2': 'Windowed frequency-domain',
 }
+
+
+def _to_samples(filter_length, sfreq, phase, fir_design):
+    _validate_type(filter_length, (str, 'int-like'), 'filter_length')
+    if isinstance(filter_length, str):
+        filter_length = filter_length.lower()
+        err_msg = ('filter_length, if a string, must be a '
+                   'human-readable time, e.g. "10s", or "auto", not '
+                   '"%s"' % filter_length)
+        if filter_length.lower().endswith('ms'):
+            mult_fact = 1e-3
+            filter_length = filter_length[:-2]
+        elif filter_length[-1].lower() == 's':
+            mult_fact = 1
+            filter_length = filter_length[:-1]
+        else:
+            raise ValueError(err_msg)
+        # now get the number
+        try:
+            filter_length = float(filter_length)
+        except ValueError:
+            raise ValueError(err_msg)
+        filter_length = max(int(np.ceil(filter_length * mult_fact *
+                                        sfreq)), 1)
+        if fir_design == 'firwin':
+            filter_length += (filter_length - 1) % 2
+    filter_length = _ensure_int(filter_length, 'filter_length')
+    return filter_length
 
 
 def _triage_filter_params(x, sfreq, l_freq, h_freq,
@@ -1635,6 +1719,7 @@ def _triage_filter_params(x, sfreq, l_freq, h_freq,
         elif phase == 'zero-double':
             dB_cutoff = '-12 dB'
 
+    # we go to the next power of two when in FIR and zero-double mode
     if method == 'iir':
         # Ignore these parameters, effectively
         l_stop, h_stop = l_freq, h_freq
@@ -1708,53 +1793,38 @@ def _triage_filter_params(x, sfreq, l_freq, h_freq,
                 raise ValueError('Effective band-stop frequency (%s) is too '
                                  'high (maximum based on Nyquist is %s)'
                                  % (h_stop, sfreq / 2.))
-        if isinstance(filter_length, str):
+
+        if isinstance(filter_length, str) and filter_length.lower() == 'auto':
             filter_length = filter_length.lower()
-            if filter_length == 'auto':
-                h_check = h_trans_bandwidth if h_freq is not None else np.inf
-                l_check = l_trans_bandwidth if l_freq is not None else np.inf
-                mult_fact = 2. if fir_design == 'firwin2' else 1.
-                filter_length = max(int(round(
-                    _length_factors[fir_window] * sfreq * mult_fact /
-                    float(min(h_check, l_check)))), 1)
-            else:
-                err_msg = ('filter_length, if a string, must be a '
-                           'human-readable time, e.g. "10s", or "auto", not '
-                           '"%s"' % filter_length)
-                if filter_length.lower().endswith('ms'):
-                    mult_fact = 1e-3
-                    filter_length = filter_length[:-2]
-                elif filter_length[-1].lower() == 's':
-                    mult_fact = 1
-                    filter_length = filter_length[:-1]
-                else:
-                    raise ValueError(err_msg)
-                # now get the number
-                try:
-                    filter_length = float(filter_length)
-                except ValueError:
-                    raise ValueError(err_msg)
-                if phase == 'zero-double':  # old mode
-                    filter_length = 2 ** int(np.ceil(np.log2(
-                        filter_length * mult_fact * sfreq)))
-                else:
-                    filter_length = max(int(np.ceil(filter_length * mult_fact *
-                                                    sfreq)), 1)
-            if fir_design == 'firwin':
-                filter_length += (filter_length - 1) % 2
-        elif not isinstance(filter_length, int):
-            raise ValueError('filter_length must be a str, int, or None, got '
-                             '%s' % (type(filter_length),))
+            h_check = h_trans_bandwidth if h_freq is not None else np.inf
+            l_check = l_trans_bandwidth if l_freq is not None else np.inf
+            mult_fact = 2. if fir_design == 'firwin2' else 1.
+            filter_length = '%ss' % (_length_factors[fir_window] * mult_fact /
+                                     float(min(h_check, l_check)),)
+            next_pow_2 = False  # disable old behavior
+        else:
+            next_pow_2 = (
+                isinstance(filter_length, str) and phase == 'zero-double')
+
+        filter_length = _to_samples(filter_length, sfreq, phase, fir_design)
+
+        # use correct type of filter (must be odd length for firwin and for
+        # zero phase)
+        if fir_design == 'firwin' or phase == 'zero':
+            filter_length += (filter_length - 1) % 2
+
         logger.info('- Filter length: %s samples (%0.3f sec)'
                     % (filter_length, filter_length / sfreq))
         logger.info('')
 
-    if filter_length != 'auto':
-        if phase == 'zero' and method == 'fir':
-            filter_length += (filter_length % 2 == 0)
         if filter_length <= 0:
             raise ValueError('filter_length must be positive, got %s'
                              % (filter_length,))
+
+        if next_pow_2:
+            filter_length = 2 ** int(np.ceil(np.log2(filter_length)))
+            if fir_design == 'firwin':
+                filter_length += (filter_length - 1) % 2
 
     # If we have data supplied, do a sanity check
     if x is not None:
@@ -1783,10 +1853,11 @@ class FilterMixin(object):
         ----------
         h_freq : float
             Approximate high cut-off frequency in Hz. Note that this
-            is not an exact cutoff, since Savitzky-Golay filtering [1]_ is
-            done using polynomial fits instead of FIR/IIR filtering.
-            This parameter is thus used to determine the length of the
-            window over which a 5th-order polynomial smoothing is used.
+            is not an exact cutoff, since Savitzky-Golay filtering
+            :footcite:`SavitzkyGolay1964` is done using polynomial fits
+            instead of FIR/IIR filtering. This parameter is thus used to
+            determine the length of the window over which a 5th-order
+            polynomial smoothing is used.
         %(verbose_meth)s
 
         Returns
@@ -1804,8 +1875,11 @@ class FilterMixin(object):
 
             https://gist.github.com/larsoner/bbac101d50176611136b
 
-
         .. versionadded:: 0.9.0
+
+        References
+        ----------
+        .. footbibliography::
 
         Examples
         --------
@@ -1815,22 +1889,14 @@ class FilterMixin(object):
         >>> evoked = mne.read_evokeds(evoked_fname, baseline=(None, 0))[0]  # doctest:+SKIP
         >>> evoked.savgol_filter(10.)  # low-pass at around 10 Hz # doctest:+SKIP
         >>> evoked.plot()  # doctest:+SKIP
-
-        References
-        ----------
-        .. [1] Savitzky, A., Golay, M.J.E. (1964). "Smoothing and
-               Differentiation of Data by Simplified Least Squares
-               Procedures". Analytical Chemistry 36 (8): 1627-39.
         """  # noqa: E501
+        from scipy.signal import savgol_filter
         _check_preload(self, 'inst.savgol_filter')
         h_freq = float(h_freq)
         if h_freq >= self.info['sfreq'] / 2.:
             raise ValueError('h_freq must be less than half the sample rate')
 
         # savitzky-golay filtering
-        if not check_version('scipy', '0.14'):
-            raise RuntimeError('scipy >= 0.14 must be installed for savgol')
-        from scipy.signal import savgol_filter
         window_length = (int(np.round(self.info['sfreq'] /
                                       h_freq)) // 2) * 2 + 1
         logger.info('Using savgol length %d' % window_length)
@@ -1929,7 +1995,7 @@ class FilterMixin(object):
         if isinstance(self, BaseRaw):
             # Deal with annotations
             onsets, ends = _annotations_starts_stops(
-                self, skip_by_annotation, 'skip_by_annotation', invert=True)
+                self, skip_by_annotation, invert=True)
             logger.info('Filtering raw data in %d contiguous segment%s'
                         % (len(onsets), _pl(onsets)))
         else:
@@ -2001,7 +2067,7 @@ class FilterMixin(object):
         lowpass = self.info.get('lowpass')
         lowpass = np.inf if lowpass is None else lowpass
         self.info['lowpass'] = min(lowpass, sfreq / 2.)
-        new_times = (np.arange(self._data.shape[-1], dtype=np.float) /
+        new_times = (np.arange(self._data.shape[-1], dtype=np.float64) /
                      sfreq + self.times[0])
         # adjust indirectly affected variables
         if isinstance(self, BaseEpochs):
@@ -2009,8 +2075,7 @@ class FilterMixin(object):
             self._raw_times = self.times
         else:  # isinstance(self, Evoked)
             self.times = new_times
-            self.first = int(self.times[0] * self.info['sfreq'])
-            self.last = len(self.times) + self.first - 1
+            self._update_first_last()
         return self
 
     @verbose
@@ -2021,10 +2086,10 @@ class FilterMixin(object):
         Parameters
         ----------
         %(picks_all_data_noref)s
-        envelope : bool (default: False)
-            Compute the envelope signal of each channel. See Notes.
-        n_jobs: int
-            Number of jobs to run in parallel.
+        envelope : bool
+            Compute the envelope signal of each channel. Default False.
+            See Notes.
+        %(n_jobs)s
         n_fft : int | None | str
             Points to use in the FFT for Hilbert transformation. The signal
             will be padded with zeros before computing Hilbert, then cut back
@@ -2236,8 +2301,13 @@ def _filt_check_picks(info, picks, h_freq, l_freq):
     # This will pick *all* data channels
     picks = _picks_to_idx(info, picks, 'data_or_ica', exclude=())
     if h_freq is not None or l_freq is not None:
-        data_picks = _picks_to_idx(info, None, 'data_or_ica', exclude=())
-        if np.in1d(data_picks, picks).all():
+        data_picks = _picks_to_idx(info, None, 'data_or_ica', exclude=(),
+                                   allow_empty=True)
+        if len(data_picks) == 0:
+            logger.info('No data channels found. The highpass and '
+                        'lowpass values in the measurement info will not '
+                        'be updated.')
+        elif np.in1d(data_picks, picks).all():
             update_info = True
         else:
             logger.info('Filtering a subset of channels. The highpass and '
@@ -2254,100 +2324,3 @@ def _filt_update_info(info, update_info, l_freq, h_freq):
         if l_freq is not None and (h_freq is None or l_freq < h_freq) and \
                 (info["highpass"] is None or l_freq > info['highpass']):
             info['highpass'] = float(l_freq)
-
-
-###############################################################################
-# Class for interpolation between adjacent points
-
-class _Interp2(object):
-    r"""Interpolate between two points.
-
-    Parameters
-    ----------
-    interp : str
-        Can be 'zero', 'linear', 'hann', or 'cos2'.
-
-    Notes
-    -----
-    This will process data using overlapping windows of potentially
-    different sizes to achieve a constant output value using different
-    2-point interpolation schemes. For example, for linear interpolation,
-    and window sizes of 6 and 17, this would look like::
-
-        1 _     _
-          |\   / '-.           .-'
-          | \ /     '-.     .-'
-          |  x         |-.-|
-          | / \     .-'     '-.
-          |/   \_.-'           '-.
-        0 +----|----|----|----|---
-          0    5   10   15   20   25
-
-    """
-
-    @verbose
-    def __init__(self, interp='hann'):
-        # set up interpolation
-        self._last = dict()
-        self._current = dict()
-        self._count = dict()
-        self._n_samp = None
-        self.interp = interp
-
-    def __setitem__(self, key, value):
-        """Update an item."""
-        if value is None:
-            assert key not in self._current
-            return
-        if key in self._current:
-            self._last[key] = self._current[key].copy()
-        self._current[key] = value.copy()
-        self._count[key] = self._count.get(key, 0) + 1
-
-    @property
-    def n_samp(self):
-        return self._n_samp
-
-    @n_samp.setter
-    def n_samp(self, n_samp):
-        # all up to date
-        assert len(set(self._count.values())) == 1
-        self._n_samp = n_samp
-        self.interp = self.interp
-
-    @property
-    def interp(self):
-        return self._interp
-
-    @interp.setter
-    def interp(self, interp):
-        known_types = ('cos2', 'linear', 'zero', 'hann')
-        if interp not in known_types:
-            raise ValueError('interp must be one of %s, got "%s"'
-                             % (known_types, interp))
-        self._interp = interp
-        if self.n_samp is not None:
-            if self._interp == 'zero' or np.isinf(self.n_samp):  # ZOH
-                self._interpolators = None
-            else:
-                if self._interp == 'linear':
-                    interp = np.linspace(1, 0, self.n_samp, endpoint=False)
-                elif self._interp == 'cos2':
-                    interp = np.cos(0.5 * np.pi * np.arange(self.n_samp)) ** 2
-                else:  # interp == 'hann'
-                    interp = np.hanning(self.n_samp * 2 + 1)[self.n_samp:-1]
-                self._interpolators = np.array([interp, 1 - interp])
-
-    def interpolate(self, key, data, out, picks=None, interp_sl=None):
-        """Interpolate."""
-        picks = slice(None) if picks is None else picks
-        interp_sl = slice(None) if interp_sl is None else interp_sl
-        # Process data in large chunks to save on memory
-        this_data = np.dot(self._last[key], data)
-        if self._interpolators is not None:
-            this_data *= self._interpolators[0][interp_sl]
-        out[picks, ] += this_data
-        if self._interpolators is not None:
-            this_data = np.dot(self._current[key], data)
-            this_data *= self._interpolators[1][interp_sl]
-            out[picks, :] += this_data

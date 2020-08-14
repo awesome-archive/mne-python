@@ -31,8 +31,8 @@ def find_eog_events(raw, event_id=998, l_freq=1, h_freq=10,
         High cut-off frequency to apply to the EOG channel in Hz.
     filter_length : str | int | None
         Number of taps to use for filtering.
-    ch_name: str | None
-        If not None, use specified channel(s) for EOG
+    ch_name : str | None
+        If not None, use specified channel(s) for EOG.
     tstart : float
         Start detection after tstart seconds.
     reject_by_annotation : bool
@@ -163,18 +163,18 @@ def _get_eog_channel_index(ch_name, inst):
 def create_eog_epochs(raw, ch_name=None, event_id=998, picks=None, tmin=-0.5,
                       tmax=0.5, l_freq=1, h_freq=10, reject=None, flat=None,
                       baseline=None, preload=True, reject_by_annotation=True,
-                      thresh=None, verbose=None):
+                      thresh=None, decim=1, verbose=None):
     """Conveniently generate epochs around EOG artifact events.
 
     Parameters
     ----------
     raw : instance of Raw
-        The raw data
+        The raw data.
     ch_name : str
         The name of the channel to use for EOG peak detection.
         The argument is mandatory if the dataset contains no EOG channels.
     event_id : int
-        The index to assign to found events
+        The index to assign to found events.
     %(picks_all)s
     tmin : float
         Start time before event.
@@ -210,15 +210,14 @@ def create_eog_epochs(raw, ch_name=None, event_id=998, picks=None, tmin=-0.5,
         interval is used. If None, no correction is applied.
     preload : bool
         Preload epochs or not.
-    reject_by_annotation : bool
-        Whether to reject based on annotations. If True (default), segments
-        whose description begins with ``'bad'`` are not used for finding
-        artifacts and epochs overlapping with them are rejected. If False, no
-        rejection based on annotations is performed.
+    %(reject_by_annotation_epochs)s
 
         .. versionadded:: 0.14.0
     thresh : float
         Threshold to trigger EOG event.
+    %(decim)s
+
+        .. versionadded:: 0.21.0
     %(verbose)s
 
     Returns
@@ -246,5 +245,6 @@ def create_eog_epochs(raw, ch_name=None, event_id=998, picks=None, tmin=-0.5,
     eog_epochs = Epochs(raw, events=events, event_id=event_id, tmin=tmin,
                         tmax=tmax, proj=False, reject=reject, flat=flat,
                         picks=picks, baseline=baseline, preload=preload,
-                        reject_by_annotation=reject_by_annotation)
+                        reject_by_annotation=reject_by_annotation,
+                        decim=decim)
     return eog_epochs

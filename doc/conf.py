@@ -40,13 +40,10 @@ curdir = os.path.dirname(__file__)
 sys.path.append(os.path.abspath(os.path.join(curdir, '..', 'mne')))
 sys.path.append(os.path.abspath(os.path.join(curdir, 'sphinxext')))
 
-if not os.path.isdir('_images'):
-    os.mkdir('_images')
-
 # -- General configuration ------------------------------------------------
 
 # If your documentation needs a minimal Sphinx version, state it here.
-needs_sphinx = '1.5'
+needs_sphinx = '2.0'
 
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
@@ -65,16 +62,21 @@ extensions = [
     'sphinx_gallery.gen_gallery',
     'sphinx_fontawesome',
     'gen_commands',
+    'gh_substitutions',
+    'mne_substitutions',
     'sphinx_bootstrap_theme',
     'sphinx_bootstrap_divs',
+    'sphinxcontrib.bibtex',
+    'sphinxcontrib.bibtex2',
 ]
 
 linkcheck_ignore = [
-    'https://doi.org/10.1088/0031-9155/57/7/1937',  # 403 Client Error: Forbidden for url: http://iopscience.iop.org/article/10.1088/0031-9155/57/7/1937/meta
-    'https://sccn.ucsd.edu/wiki/.*',  # HTTPSConnectionPool(host='sccn.ucsd.edu', port=443): Max retries exceeded with url: /wiki/Firfilt_FAQ (Caused by SSLError(SSLError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed (_ssl.c:847)'),))
-    'https://docs.python.org/dev/howto/logging.html',  # ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))
-    'https://docs.python.org/3/library/.*',  # ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))
-    'https://hal.archives-ouvertes.fr/hal-01848442/',  # Sometimes: 503 Server Error: Service Unavailable for url: https://hal.archives-ouvertes.fr/hal-01848442/
+    'https://doi.org/10.1088/0031-9155/57/7/1937',  # noqa 403 Client Error: Forbidden for url: http://iopscience.iop.org/article/10.1088/0031-9155/57/7/1937/meta
+    'https://doi.org/10.1088/0031-9155/51/7/008',  # noqa 403 Client Error: Forbidden for url: https://iopscience.iop.org/article/10.1088/0031-9155/51/7/008
+    'https://sccn.ucsd.edu/wiki/.*',  # noqa HTTPSConnectionPool(host='sccn.ucsd.edu', port=443): Max retries exceeded with url: /wiki/Firfilt_FAQ (Caused by SSLError(SSLError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed (_ssl.c:847)'),))
+    'https://docs.python.org/dev/howto/logging.html',  # noqa ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))
+    'https://docs.python.org/3/library/.*',  # noqa ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))
+    'https://hal.archives-ouvertes.fr/hal-01848442/',  # noqa Sometimes: 503 Server Error: Service Unavailable for url: https://hal.archives-ouvertes.fr/hal-01848442/
 ]
 linkcheck_anchors = False  # saves a bit of time
 
@@ -84,11 +86,16 @@ autodoc_default_options = {'inherited-members': None}
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
+# List of patterns, relative to source directory, that match files and
+# directories to ignore when looking for source files.
+# This pattern also affects html_static_path and html_extra_path.
+exclude_patterns = ['_includes']
+
 # The suffix of source filenames.
 source_suffix = '.rst'
 
 # The encoding of source files.
-#source_encoding = 'utf-8-sig'
+# source_encoding = 'utf-8-sig'
 
 # The master toctree document.
 master_doc = 'index'
@@ -100,6 +107,33 @@ copyright = u'2012-%s, MNE Developers. Last updated on %s' % (td.year,
                                                               td.isoformat())
 
 nitpicky = True
+nitpick_ignore = [
+    ("py:class", "None.  Remove all items from D."),
+    ("py:class", "a set-like object providing a view on D's items"),
+    ("py:class", "a set-like object providing a view on D's keys"),
+    ("py:class", "v, remove specified key and return the corresponding value."),  # noqa: E501
+    ("py:class", "None.  Update D from dict/iterable E and F."),
+    ("py:class", "an object providing a view on D's values"),
+    ("py:class", "a shallow copy of D"),
+]
+for key in ('AcqParserFIF', 'BiHemiLabel', 'Dipole', 'DipoleFixed', 'Label',
+            'MixedSourceEstimate', 'MixedVectorSourceEstimate', 'Report',
+            'SourceEstimate', 'SourceMorph', 'VectorSourceEstimate',
+            'VolSourceEstimate', 'VolVectorSourceEstimate',
+            'channels.DigMontage', 'channels.Layout',
+            'decoding.CSP', 'decoding.EMS', 'decoding.FilterEstimator',
+            'decoding.GeneralizingEstimator', 'decoding.LinearModel',
+            'decoding.PSDEstimator', 'decoding.ReceptiveField',
+            'decoding.SPoC', 'decoding.Scaler', 'decoding.SlidingEstimator',
+            'decoding.TemporalFilter', 'decoding.TimeDelayingRidge',
+            'decoding.TimeFrequency', 'decoding.UnsupervisedSpatialFilter',
+            'decoding.Vectorizer',
+            'preprocessing.ICA', 'preprocessing.Xdawn',
+            'simulation.SourceSimulator',
+            'time_frequency.CrossSpectralDensity',
+            'utils.deprecated',
+            'viz.ClickableImage'):
+    nitpick_ignore.append(('py:obj', f'mne.{key}.__hash__'))
 suppress_warnings = ['image.nonlocal_uri']  # we intentionally link outside
 
 # The version info for the project you're documenting, acts as replacement for
@@ -113,13 +147,13 @@ release = version
 
 # The language for content autogenerated by Sphinx. Refer to documentation
 # for a list of supported languages.
-#language = None
+# language = None
 
 # There are two options for replacing |today|: either, you set today to some
 # non-false value, then it is used:
-#today = ''
+# today = ''
 # Else, today_fmt is used as the format for a strftime call.
-#today_fmt = '%B %d, %Y'
+# today_fmt = '%B %d, %Y'
 
 # List of documents that shouldn't be included in the build.
 unused_docs = []
@@ -130,18 +164,18 @@ exclude_trees = ['_build']
 
 # The reST default role (used for this markup: `text`) to use for all
 # documents.
-default_role = "autolink"
+default_role = "py:obj"
 
 # If true, '()' will be appended to :func: etc. cross-reference text.
-#add_function_parentheses = True
+# add_function_parentheses = True
 
 # If true, the current module name will be prepended to all description
 # unit titles (such as .. function::).
-#add_module_names = True
+# add_module_names = True
 
 # If true, sectionauthor and moduleauthor directives will be shown in the
 # output. They are ignored by default.
-#show_authors = False
+# show_authors = False
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = 'default'
@@ -150,7 +184,7 @@ pygments_style = 'default'
 modindex_common_prefix = ['mne.']
 
 # If true, keep warnings as "system message" paragraphs in the built documents.
-#keep_warnings = False
+# keep_warnings = False
 
 
 # -- Options for HTML output ----------------------------------------------
@@ -177,20 +211,19 @@ html_theme_options = {
         ("Examples", "auto_examples/index"),
         ("Glossary", "glossary"),
         ("API", "python_reference"),
-        ("Contribute", "install/contributing"),
     ],
 }
 
 # The name for this set of Sphinx documents.  If None, it defaults to
 # "<project> v<release> documentation".
-#html_title = None
+# html_title = None
 
 # A shorter title for the navigation bar.  Default is the same as html_title.
-#html_short_title = None
+# html_short_title = None
 
 # The name of an image file (relative to this directory) to place at the top
 # of the sidebar.
-html_logo = "_static/mne_logo_small.png"
+html_logo = "_static/mne_logo_small.svg"
 
 # The name of an image file (within the static path) to use as favicon of the
 # docs.  This file should be a Windows icon file (.ico) being 16x16 or 32x32
@@ -200,36 +233,41 @@ html_favicon = "_static/favicon.ico"
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ['_static', '_images']
+html_static_path = ['_static']
 
 # Add any extra paths that contain custom files (such as robots.txt or
 # .htaccess) here, relative to this directory. These files are copied
 # directly to the root of the documentation.
-#html_extra_path = []
+html_extra_path = [
+    'contributing.html',
+    'documentation.html',
+    'getting_started.html',
+    'install_mne_python.html',
+]
 
 # If not '', a 'Last updated on:' timestamp is inserted at every page bottom,
 # using the given strftime format.
-#html_last_updated_fmt = '%b %d, %Y'
+# html_last_updated_fmt = '%b %d, %Y'
 
 # If true, SmartyPants will be used to convert quotes and dashes to
 # typographically correct entities.
-#html_use_smartypants = True
+# html_use_smartypants = True
 
 # Custom sidebar templates, maps document names to template names.
-#html_sidebars = {}
+# html_sidebars = {}
 
 # Additional templates that should be rendered to pages, maps page names to
 # template names.
-#html_additional_pages = {}
+# html_additional_pages = {}
 
 # If false, no module index is generated.
-#html_domain_indices = True
+# html_domain_indices = True
 
 # If false, no index is generated.
-#html_use_index = True
+# html_use_index = True
 
 # If true, the index is split into individual pages for each letter.
-#html_split_index = False
+# html_split_index = False
 
 # If true, links to the reST sources are added to the pages.
 html_show_sourcelink = False
@@ -239,12 +277,12 @@ html_copy_source = False
 html_show_sphinx = False
 
 # If true, "(C) Copyright ..." is shown in the HTML footer. Default is True.
-#html_show_copyright = True
+# html_show_copyright = True
 
 # If true, an OpenSearch description file will be output, and all pages will
 # contain a <link> tag referring to it.  The value of this option must be the
 # base URL from which the finished HTML is served.
-#html_use_opensearch = ''
+# html_use_opensearch = ''
 
 # variables to pass to HTML templating engine
 build_dev_html = bool(int(os.environ.get('BUILD_DEV_HTML', False)))
@@ -253,7 +291,7 @@ html_context = {'use_google_analytics': True, 'use_twitter': True,
                 'use_media_buttons': True, 'build_dev_html': build_dev_html}
 
 # This is the file name suffix for HTML files (e.g. ".xhtml").
-#html_file_suffix = None
+# html_file_suffix = None
 
 # Output file base name for HTML help builder.
 htmlhelp_basename = 'mne-doc'
@@ -271,8 +309,8 @@ htmlhelp_basename = 'mne-doc'
 # (source start file, target name, title, author, documentclass
 # [howto/manual]).
 latex_documents = [
-#    ('index', 'MNE.tex', u'MNE Manual',
-#     u'MNE Contributors', 'manual'),
+    # ('index', 'MNE.tex', u'MNE Manual',
+    #  u'MNE Contributors', 'manual'),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
@@ -308,14 +346,24 @@ intersphinx_mapping = {
     'nilearn': ('http://nilearn.github.io', None),
     'surfer': ('https://pysurfer.github.io/', None),
     'pandas': ('https://pandas.pydata.org/pandas-docs/stable', None),
-    'statsmodels': ('http://www.statsmodels.org/stable/', None),
+    'seaborn': ('https://seaborn.pydata.org/', None),
+    'statsmodels': ('https://www.statsmodels.org/dev', None),
+    'patsy': ('https://patsy.readthedocs.io/en/latest', None),
     # There are some problems with dipy's redirect:
     # https://github.com/nipy/dipy/issues/1955
     'dipy': ('https://dipy.org/documentation/latest',
-             'https://dipy.org/documentation/1.0.0./objects.inv/'),
+             'https://dipy.org/documentation/1.1.1./objects.inv/'),
     'mne_realtime': ('https://mne.tools/mne-realtime', None),
     'picard': ('https://pierreablin.github.io/picard/', None),
 }
+
+
+##############################################################################
+# sphinxcontrib-bibtex
+
+bibtex_bibfiles = ['./references.bib']
+bibtex_style = 'unsrt'
+bibtex_footbibliography_header = ''
 
 ##############################################################################
 # sphinx-gallery
@@ -341,7 +389,7 @@ try:
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning)
         import pyvista
-    pyvista.OFF_SCREEN = True
+    pyvista.OFF_SCREEN = False
 except Exception:
     pass
 else:
@@ -353,6 +401,11 @@ if any(x in scrapers for x in ('pyvista', 'mayavi')):
     scrapers += (report_scraper,)
 else:
     report_scraper = None
+if 'pyvista' in scrapers:
+    brain_scraper = mne.viz._brain._BrainScraper()
+    scrapers = list(scrapers)
+    scrapers.insert(scrapers.index('pyvista'), brain_scraper)
+    scrapers = tuple(scrapers)
 
 
 def append_attr_meth_examples(app, what, name, obj, options, lines):
@@ -366,14 +419,12 @@ def append_attr_meth_examples(app, what, name, obj, options, lines):
             op.dirname(__file__), 'generated', '%s.examples' % (name,)))
         if size > 0:
             lines += """
+.. _sphx_glr_backreferences_{1}:
+
 .. rubric:: Examples using ``{0}``:
 
-.. include:: {1}.examples
-   :start-line: 5
+.. minigallery:: {1}
 
-.. raw:: html
-
-    <div style="clear:both"></div>
 """.format(name.split('.')[-1], name).split('\n')
 
 
@@ -438,12 +489,22 @@ def reset_warnings(gallery_conf, fname):
                 "DocumenterBridge requires a state object",  # sphinx dev
                 "'U' mode is deprecated",  # sphinx io
                 r"joblib is deprecated in 0\.21",  # nilearn
+                'The usage of `cmp` is deprecated and will',  # sklearn/pytest
+                'scipy.* is deprecated and will be removed in',  # dipy
+                r'Converting `np\.character` to a dtype is deprecated',  # vtk
+                r'sphinx\.util\.smartypants is deprecated',
+                'is a deprecated alias for the builtin',  # NumPy
                 ):
         warnings.filterwarnings(  # deal with other modules having bad imports
             'ignore', message=".*%s.*" % key, category=DeprecationWarning)
     warnings.filterwarnings(  # deal with bootstrap-theme bug
         'ignore', message=".*modify script_files in the theme.*",
         category=Warning)
+    warnings.filterwarnings(  # nilearn
+        'ignore', message=r'sklearn\.externals\.joblib is deprecated.*',
+        category=FutureWarning)
+    warnings.filterwarnings(  # nilearn
+        'ignore', message=r'The sklearn.* module is.*', category=FutureWarning)
     warnings.filterwarnings(  # deal with other modules having bad imports
         'ignore', message=".*ufunc size changed.*", category=RuntimeWarning)
     warnings.filterwarnings(  # realtime
@@ -474,6 +535,7 @@ sphinx_gallery_conf = {
                                        '../examples/realtime/',
                                        '../examples/datasets/',
                                        '../tutorials/intro/',
+                                       '../tutorials/io/',
                                        '../tutorials/raw/',
                                        '../tutorials/preprocessing/',
                                        '../tutorials/epochs/',
@@ -498,10 +560,13 @@ sphinx_gallery_conf = {
     'abort_on_example_error': False,
     'reset_modules': ('matplotlib', Resetter()),  # called w/each script
     'image_scrapers': scrapers,
-    'show_memory': True,
+    'show_memory': not sys.platform.startswith('win'),
     'line_numbers': False,  # XXX currently (0.3.dev0) messes with style
     'within_subsection_order': FileNameSortKey,
+    'capture_repr': ('_repr_html_',),
     'junit': op.join('..', 'test-results', 'sphinx-gallery', 'junit.xml'),
+    'matplotlib_animations': True,
+    'compress_images': ('images', 'thumbnails'),
 }
 
 ##############################################################################
@@ -510,10 +575,10 @@ sphinx_gallery_conf = {
 # XXX This hack defines what extra methods numpydoc will document
 docscrape.ClassDoc.extra_public_methods = mne.utils._doc_special_members
 numpydoc_class_members_toctree = False
-numpydoc_attributes_as_param_list = False
+numpydoc_attributes_as_param_list = True
 numpydoc_xref_param_type = True
 numpydoc_xref_aliases = {
-    'Popen': 'python:subprocess.Popen',
+    # Python
     'file-like': ':term:`file-like <python:file object>`',
     # Matplotlib
     'colormap': ':doc:`colormap <matplotlib:tutorials/colors/colormaps>`',
@@ -544,12 +609,12 @@ numpydoc_xref_aliases = {
     'EpochsTFR': 'mne.time_frequency.EpochsTFR',
     'Raw': 'mne.io.Raw', 'ICA': 'mne.preprocessing.ICA',
     'Covariance': 'mne.Covariance', 'Annotations': 'mne.Annotations',
-    'Montage': 'mne.channels.Montage',
     'DigMontage': 'mne.channels.DigMontage',
     'VectorSourceEstimate': 'mne.VectorSourceEstimate',
     'VolSourceEstimate': 'mne.VolSourceEstimate',
     'VolVectorSourceEstimate': 'mne.VolVectorSourceEstimate',
     'MixedSourceEstimate': 'mne.MixedSourceEstimate',
+    'MixedVectorSourceEstimate': 'mne.MixedVectorSourceEstimate',
     'SourceEstimate': 'mne.SourceEstimate', 'Projection': 'mne.Projection',
     'ConductorModel': 'mne.bem.ConductorModel',
     'Dipole': 'mne.Dipole', 'DipoleFixed': 'mne.DipoleFixed',
@@ -586,12 +651,14 @@ numpydoc_xref_ignore = {
     'n_splits', 'n_scores', 'n_outputs', 'n_trials', 'n_estimators', 'n_tasks',
     'nd_features', 'n_classes', 'n_targets', 'n_slices', 'n_hpi', 'n_fids',
     'n_elp', 'n_pts', 'n_tris', 'n_nodes', 'n_nonzero', 'n_events_out',
-    'n_segments',
+    'n_segments', 'n_orient_inv', 'n_orient_fwd', 'n_orient', 'n_dipoles_lcmv',
+    'n_dipoles_fwd', 'n_picks_ref',
     # Undocumented (on purpose)
     'RawKIT', 'RawEximia', 'RawEGI', 'RawEEGLAB', 'RawEDF', 'RawCTF', 'RawBTi',
-    'RawBrainVision', 'RawCurry',
+    'RawBrainVision', 'RawCurry', 'RawNIRX', 'RawGDF', 'RawSNIRF',
     # sklearn subclasses
     'mapping', 'to', 'any',
     # unlinkable
     'mayavi.mlab.pipeline.surface',
+    'CoregFrame', 'Kit2FiffFrame', 'FiducialsFrame',
 }

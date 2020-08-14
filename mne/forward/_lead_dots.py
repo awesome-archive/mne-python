@@ -1,8 +1,11 @@
-# Authors: Eric Larson <larsoner@uw.edu>
+# Authors: Matti Hämäläinen <msh@nmr.mgh.harvard.edu>
+#          Eric Larson <larsoner@uw.edu>
 #          Mainak Jas <mainak.jas@telecom-paristech.fr>
-#          Matti Hamalainen <msh@nmr.mgh.harvard.edu>
 #
 # License: BSD (3-clause)
+
+# The computations in this code were primarily derived from Matti Hämäläinen's
+# C code.
 
 import os
 import os.path as op
@@ -74,7 +77,7 @@ def _get_legen_table(ch_type, volume_integral=False, n_coeff=100,
         lut = leg_fun(x_interp, n_coeff).astype(np.float32)
         if not force_calc:
             with open(fname, 'wb') as fid:
-                fid.write(lut.tostring())
+                fid.write(lut.tobytes())
     else:
         logger.info('Reading Legendre%s table...' % extra_str)
         with open(fname, 'rb', buffering=0) as fid:
@@ -313,7 +316,7 @@ def _do_self_dots(intrad, volume, coils, r0, ch_type, lut, n_fact, n_jobs):
         The integration products.
     """
     if ch_type == 'eeg':
-        intrad *= 0.7
+        intrad = intrad * 0.7
     # convert to normalized distances from expansion center
     rmags = [coil['rmag'] - r0[np.newaxis, :] for coil in coils]
     rlens = [np.sqrt(np.sum(r * r, axis=1)) for r in rmags]
@@ -376,6 +379,8 @@ def _do_cross_dots(intrad, volume, coils1, coils2, r0, ch_type,
     products : array, shape (n_coils, n_coils)
         The integration products.
     """
+    if ch_type == 'eeg':
+        intrad = intrad * 0.7
     rmags1 = [coil['rmag'] - r0[np.newaxis, :] for coil in coils1]
     rmags2 = [coil['rmag'] - r0[np.newaxis, :] for coil in coils2]
 
@@ -443,7 +448,7 @@ def _do_surface_dots(intrad, volume, coils, surf, sel, r0, ch_type,
     refl = None
     # virt_ref = False
     if ch_type == 'eeg':
-        intrad *= 0.7
+        intrad = intrad * 0.7
         # The virtual ref code is untested and unused, so it is
         # commented out for now
         # if virt_ref:

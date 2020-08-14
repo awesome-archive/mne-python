@@ -6,8 +6,8 @@ r"""
 Background information on filtering
 ===================================
 
-Here we give some background information on filtering in general,
-and how it is done in MNE-Python in particular.
+Here we give some background information on filtering in general, and
+how it is done in MNE-Python in particular.
 Recommended reading for practical applications of digital
 filter design can be found in Parks & Burrus (1987) [1]_ and
 Ifeachor & Jervis (2002) [2]_, and for filtering in an
@@ -305,10 +305,10 @@ plot_filter(h, sfreq, freq, gain, 'Windowed 50 Hz transition (0.2 s)',
 # not end up being as steep as the linear/zero-phase version.
 #
 # We can construct a minimum-phase filter from our existing linear-phase
-# filter with the ``minimum_phase`` function in :mod:`scipy.signal`, and note
+# filter with the :func:`scipy.signal.minimum_phase` function, and note
 # that the falloff is not as steep:
 
-h_min = mne.fixes.minimum_phase(h)
+h_min = signal.minimum_phase(h)
 plot_filter(h_min, sfreq, freq, gain, 'Minimum-phase', flim=flim)
 
 ###############################################################################
@@ -710,7 +710,7 @@ plt.show()
 # a high-pass, it is important to keep in mind (as most authors note) that
 # filtering choices should depend on the frequency content of both the
 # signal(s) of interest and the noise to be suppressed. For example, in
-# some of the MNE-Python examples involving :ref:`ch_sample_data`,
+# some of the MNE-Python examples involving :ref:`sample-data`,
 # high-pass values of around 1 Hz are used when looking at auditory
 # or visual N100 responses, because we analyze standard (not deviant) trials
 # and thus expect that contamination by later or slower components will
@@ -934,8 +934,8 @@ baseline_plot(x)
 # -----------
 # Depending on the function or method used, the filter type can be specified.
 # To name an example, in :func:`mne.filter.create_filter`, the relevant
-# arguments would be `l_freq`, `h_freg`, `method`, and if the method is FIR
-# `fir_window` and `fir_design`.
+# arguments would be ``l_freq``, ``h_freq``, ``method``, and if the method is
+# FIR ``fir_window`` and ``fir_design``.
 #
 #
 # Cutoff frequency
@@ -943,7 +943,7 @@ baseline_plot(x)
 # The cutoff of FIR filters in MNE is defined as half-amplitude cutoff in the
 # middle of the transition band. That is, if you construct a lowpass FIR filter
 # with ``h_freq = 40``, the filter function will provide a transition
-# bandwidth that depends on the `h_trans_bandwidth` argument. The desired
+# bandwidth that depends on the ``h_trans_bandwidth`` argument. The desired
 # half-amplitude  cutoff of the lowpass FIR filter is then at
 # ``h_freq + transition_bandwidth/2.``.
 #
@@ -975,7 +975,7 @@ filter_length = fir_coefs.shape[0]
 ###############################################################################
 # .. note:: If you are using an IIR filter, :func:`mne.filter.create_filter`
 #           will not print a filter length and transition bandwidth to the log.
-#           Instead, you can specify the roll-off with the `iir_params`
+#           Instead, you can specify the roll-off with the ``iir_params``
 #           argument or stay with the default, which is a fourth order
 #           (Butterworth) filter.
 #

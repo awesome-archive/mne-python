@@ -6,21 +6,28 @@
 import numpy as np
 from scipy import linalg
 
-from ..source_estimate import (SourceEstimate, VolSourceEstimate,
-                               _BaseSourceEstimate)
+from ..source_estimate import SourceEstimate, _BaseSourceEstimate, _make_stc
 from ..minimum_norm.inverse import (combine_xyz, _prepare_forward,
                                     _check_reference)
 from ..forward import is_fixed_orient
 from ..io.pick import pick_channels_evoked
 from ..io.proj import deactivate_proj
-from ..utils import logger, verbose, warn, _check_depth
+from ..utils import logger, verbose, _check_depth, _check_option, sum_squared
 from ..dipole import Dipole
 
 from .mxne_optim import (mixed_norm_solver, iterative_mixed_norm_solver, _Phi,
-                         norm_l2inf, tf_mixed_norm_solver, norm_epsilon_inf)
+                         tf_mixed_norm_solver, iterative_tf_mixed_norm_solver,
+                         norm_l2inf, norm_epsilon_inf)
 
 
-@verbose
+def _check_ori(pick_ori, forward):
+    """Check pick_ori."""
+    _check_option('pick_ori', pick_ori, [None, 'vector'])
+    if pick_ori == 'vector' and is_fixed_orient(forward):
+        raise ValueError('pick_ori="vector" cannot be combined with a fixed '
+                         'orientation forward solution.')
+
+
 def _prepare_weights(forward, gain, source_weighting, weights, weights_min):
     mask = None
     if isinstance(weights, _BaseSourceEstimate):
@@ -102,10 +109,16 @@ def _compute_residual(forward, evoked, X, active_set, info):
 
 @verbose
 def _make_sparse_stc(X, active_set, forward, tmin, tstep,
-                     active_is_idx=False, verbose=None):
+                     active_is_idx=False, pick_ori=None, verbose=None):
+    source_nn = forward['source_nn']
+    vector = False
     if not is_fixed_orient(forward):
-        logger.info('combining the current components...')
-        X = combine_xyz(X)
+        if pick_ori != 'vector':
+            logger.info('combining the current components...')
+            X = combine_xyz(X)
+        else:
+            vector = True
+            source_nn = np.reshape(source_nn, (-1, 3, 3))
 
     if not active_is_idx:
         active_idx = np.where(active_set)[0]
@@ -117,25 +130,20 @@ def _make_sparse_stc(X, active_set, forward, tmin, tstep,
         active_idx = np.unique(active_idx // n_dip_per_pos)
 
     src = forward['src']
-
-    if src.kind != 'surface':
-        vertices = src[0]['vertno'][active_idx]
-        stc = VolSourceEstimate(X, vertices=vertices, tmin=tmin, tstep=tstep)
-    else:
-        vertices = []
-        n_points_so_far = 0
-        for this_src in src:
-            this_n_points_so_far = n_points_so_far + len(this_src['vertno'])
-            this_active_idx = active_idx[(n_points_so_far <= active_idx) &
-                                         (active_idx < this_n_points_so_far)]
-            this_active_idx -= n_points_so_far
-            this_vertno = this_src['vertno'][this_active_idx]
-            n_points_so_far = this_n_points_so_far
-            vertices.append(this_vertno)
-
-        stc = SourceEstimate(X, vertices=vertices, tmin=tmin, tstep=tstep)
-
-    return stc
+    vertices = []
+    n_points_so_far = 0
+    for this_src in src:
+        this_n_points_so_far = n_points_so_far + len(this_src['vertno'])
+        this_active_idx = active_idx[(n_points_so_far <= active_idx) &
+                                     (active_idx < this_n_points_so_far)]
+        this_active_idx -= n_points_so_far
+        this_vertno = this_src['vertno'][this_active_idx]
+        n_points_so_far = this_n_points_so_far
+        vertices.append(this_vertno)
+    source_nn = source_nn[active_idx]
+    return _make_stc(
+        X, vertices, src.kind, tmin, tstep, src[0]['subject_his_id'],
+        vector=vector, source_nn=source_nn)
 
 
 @verbose
@@ -228,17 +236,17 @@ def make_stc_from_dipoles(dipoles, src, verbose=None):
     vertices = [np.array(lh_vertno).astype(int),
                 np.array(rh_vertno).astype(int)]
     stc = SourceEstimate(X, vertices=vertices, tmin=tmin, tstep=tstep,
-                         subject=src[0]['subject_his_id'])
+                         subject=src._subject)
     logger.info('[done]')
     return stc
 
 
 @verbose
 def mixed_norm(evoked, forward, noise_cov, alpha, loose='auto', depth=0.8,
-               maxit=3000, tol=1e-4, active_set_size=10, pca=None,
+               maxit=3000, tol=1e-4, active_set_size=10,
                debias=True, time_pca=True, weights=None, weights_min=0.,
                solver='auto', n_mxne_iter=1, return_residual=False,
-               return_as_dipoles=False, dgap_freq=10, rank=None,
+               return_as_dipoles=False, dgap_freq=10, rank=None, pick_ori=None,
                verbose=None):
     """Mixed-norm estimate (MxNE) and iterative reweighted MxNE (irMxNE).
 
@@ -256,13 +264,7 @@ def mixed_norm(evoked, forward, noise_cov, alpha, loose='auto', depth=0.8,
     alpha : float in range [0, 100)
         Regularization parameter. 0 means no regularization, 100 would give 0
         active dipole.
-    loose : float in [0, 1] | 'auto'
-        Value that weights the source variances of the dipole components
-        that are parallel (tangential) to the cortical surface. If loose
-        is 0 then the solution is computed with fixed orientation.
-        If loose is 1, it corresponds to free orientations.
-        The default value ('auto') is set to 0.2 for surface-oriented source
-        space and set to 1.0 for volumic or discrete source space.
+    %(loose)s
     %(depth)s
     maxit : int
         Maximum number of iterations.
@@ -270,8 +272,6 @@ def mixed_norm(evoked, forward, noise_cov, alpha, loose='auto', depth=0.8,
         Tolerance parameter.
     active_set_size : int | None
         Size of active set increment. If None, no active set strategy is used.
-    pca : bool
-        If True the rank of the data is reduced to true dimension.
     debias : bool
         Remove coefficient amplitude bias due to L1 penalty.
     time_pca : bool or int
@@ -302,6 +302,7 @@ def mixed_norm(evoked, forward, noise_cov, alpha, loose='auto', depth=0.8,
     %(rank_None)s
 
         .. versionadded:: 0.18
+    %(pick_ori)s
     %(verbose)s
 
     Returns
@@ -318,7 +319,7 @@ def mixed_norm(evoked, forward, noise_cov, alpha, loose='auto', depth=0.8,
 
     References
     ----------
-    .. [1] A. Gramfort, M. Kowalski, M. Hamalainen,
+    .. [1] A. Gramfort, M. Kowalski, M. Hämäläinen,
        "Mixed-norm estimates for the M/EEG inverse problem using accelerated
        gradient methods", Physics in Medicine and Biology, 2012.
        https://doi.org/10.1088/0031-9155/57/7/1937
@@ -338,11 +339,7 @@ def mixed_norm(evoked, forward, noise_cov, alpha, loose='auto', depth=0.8,
         raise ValueError('dgap_freq must be a positive integer.'
                          ' Got dgap_freq = %s' % dgap_freq)
 
-    if pca is None:
-        pca = True
-    else:
-        warn('pca argument is deprecated and will be removed in 0.19, do '
-             'not set it. It should not affect results.', DeprecationWarning)
+    pca = True
     if not isinstance(evoked, list):
         evoked = [evoked]
 
@@ -356,6 +353,7 @@ def mixed_norm(evoked, forward, noise_cov, alpha, loose='auto', depth=0.8,
     forward, gain, gain_info, whitener, source_weighting, mask = _prepare_gain(
         forward, evoked[0].info, noise_cov, pca, depth, loose, rank,
         weights, weights_min)
+    _check_ori(pick_ori, forward)
 
     sel = [all_ch_names.index(name) for name in gain_info['ch_names']]
     M = np.concatenate([e.data[sel] for e in evoked], axis=1)
@@ -372,7 +370,8 @@ def mixed_norm(evoked, forward, noise_cov, alpha, loose='auto', depth=0.8,
             Vh = Vh[:time_pca]
         M = U * s
 
-    # Scaling to make setting of alpha easy
+    # Scaling to make setting of tol and alpha easy
+    tol *= sum_squared(M)
     n_dip_per_pos = 1 if is_fixed_orient(forward) else 3
     alpha_max = norm_l2inf(np.dot(gain.T, M), n_dip_per_pos, copy=False)
     alpha_max *= 0.01
@@ -398,7 +397,7 @@ def mixed_norm(evoked, forward, noise_cov, alpha, loose='auto', depth=0.8,
     M_estimated = np.dot(gain[:, active_set], X)
 
     if mask is not None:
-        active_set_tmp = np.zeros(len(mask), dtype=np.bool)
+        active_set_tmp = np.zeros(len(mask), dtype=bool)
         active_set_tmp[mask] = active_set
         active_set = active_set_tmp
         del active_set_tmp
@@ -422,7 +421,8 @@ def mixed_norm(evoked, forward, noise_cov, alpha, loose='auto', depth=0.8,
                 M[:, cnt:(cnt + len(e.times))],
                 M_estimated[:, cnt:(cnt + len(e.times))], verbose=None)
         else:
-            out = _make_sparse_stc(Xe, active_set, forward, tmin, tstep)
+            out = _make_sparse_stc(
+                Xe, active_set, forward, tmin, tstep, pick_ori=pick_ori)
         outs.append(out)
         cnt += len(e.times)
 
@@ -467,9 +467,9 @@ def tf_mixed_norm(evoked, forward, noise_cov,
                   loose='auto', depth=0.8, maxit=3000,
                   tol=1e-4, weights=None, weights_min=0., pca=True,
                   debias=True, wsize=64, tstep=4, window=0.02,
-                  return_residual=False, return_as_dipoles=False,
-                  alpha=None, l1_ratio=None, dgap_freq=10, rank=None,
-                  verbose=None):
+                  return_residual=False, return_as_dipoles=False, alpha=None,
+                  l1_ratio=None, dgap_freq=10, rank=None, pick_ori=None,
+                  n_tfmxne_iter=1, verbose=None):
     """Time-Frequency Mixed-norm estimate (TF-MxNE).
 
     Compute L1/L2 + L1 mixed-norm solution on time-frequency
@@ -483,35 +483,29 @@ def tf_mixed_norm(evoked, forward, noise_cov,
         Forward operator.
     noise_cov : instance of Covariance
         Noise covariance to compute whitener.
-    loose : float in [0, 1] | 'auto'
-        Value that weights the source variances of the dipole components
-        that are parallel (tangential) to the cortical surface. If loose
-        is 0 then the solution is computed with fixed orientation.
-        If loose is 1, it corresponds to free orientations.
-        The default value ('auto') is set to 0.2 for surface-oriented source
-        space and set to 1.0 for volumic or discrete source space.
+    %(loose)s
     %(depth)s
     maxit : int
         Maximum number of iterations.
     tol : float
         Tolerance parameter.
-    weights: None | array | SourceEstimate
+    weights : None | array | SourceEstimate
         Weight for penalty in mixed_norm. Can be None or
         1d array of length n_sources or a SourceEstimate e.g. obtained
         with wMNE or dSPM or fMRI.
-    weights_min: float
+    weights_min : float
         Do not consider in the estimation sources for which weights
         is less than weights_min.
-    pca: bool
+    pca : bool
         If True the rank of the data is reduced to true dimension.
-    debias: bool
+    debias : bool
         Remove coefficient amplitude bias due to L1 penalty.
-    wsize: int or array-like
+    wsize : int or array-like
         Length of the STFT window in samples (must be a multiple of 4).
         If an array is passed, multiple TF dictionaries are used (each having
         its own wsize and tstep) and each entry of wsize must be a multiple
         of 4. See [3]_.
-    tstep: int or array-like
+    tstep : int or array-like
         Step between successive windows in samples (must be a multiple of 2,
         a divider of wsize and smaller than wsize/2) (default: wsize/2).
         If an array is passed, multiple TF dictionaries are used (each having
@@ -534,14 +528,16 @@ def tf_mixed_norm(evoked, forward, noise_cov,
         Proportion of temporal regularization.
         If l1_ratio and alpha are not None, alpha_space and alpha_time are
         overridden by alpha * alpha_max * (1. - l1_ratio) and alpha * alpha_max
-        * l1_ratio. 0 means no time regularization aka MxNE.
+        * l1_ratio. 0 means no time regularization a.k.a. MxNE.
     dgap_freq : int or np.inf
         The duality gap is evaluated every dgap_freq iterations.
     %(rank_None)s
 
         .. versionadded:: 0.18
+    %(pick_ori)s
+    n_tfmxne_iter : int
+        Number of TF-MxNE iterations. If > 1, iterative reweighting is applied.
     %(verbose)s
-
 
     Returns
     -------
@@ -557,13 +553,13 @@ def tf_mixed_norm(evoked, forward, noise_cov,
 
     References
     ----------
-    .. [1] A. Gramfort, D. Strohmeier, J. Haueisen, M. Hamalainen, M. Kowalski
+    .. [1] A. Gramfort, D. Strohmeier, J. Haueisen, M. Hämäläinen, M. Kowalski
        "Time-Frequency Mixed-Norm Estimates: Sparse M/EEG imaging with
        non-stationary source activations",
        Neuroimage, Volume 70, pp. 410-422, 15 April 2013.
        DOI: 10.1016/j.neuroimage.2012.12.051
 
-    .. [2] A. Gramfort, D. Strohmeier, J. Haueisen, M. Hamalainen, M. Kowalski
+    .. [2] A. Gramfort, D. Strohmeier, J. Haueisen, M. Hämäläinen, M. Kowalski
        "Functional Brain Imaging with M/EEG Using Structured Sparsity in
        Time-Frequency Dictionaries",
        Proceedings Information Processing in Medical Imaging
@@ -591,6 +587,10 @@ def tf_mixed_norm(evoked, forward, noise_cov,
     alpha_space = alpha * (1. - l1_ratio)
     alpha_time = alpha * l1_ratio
 
+    if n_tfmxne_iter < 1:
+        raise ValueError('TF-MxNE has to be computed at least 1 time. '
+                         'Requires n_tfmxne_iter >= 1, got %s' % n_tfmxne_iter)
+
     if dgap_freq <= 0.:
         raise ValueError('dgap_freq must be a positive integer.'
                          ' Got dgap_freq = %s' % dgap_freq)
@@ -605,6 +605,8 @@ def tf_mixed_norm(evoked, forward, noise_cov,
     forward, gain, gain_info, whitener, source_weighting, mask = _prepare_gain(
         forward, evoked.info, noise_cov, pca, depth, loose, rank,
         weights, weights_min)
+    _check_ori(pick_ori, forward)
+
     n_dip_per_pos = 1 if is_fixed_orient(forward) else 3
 
     if window is not None:
@@ -617,21 +619,28 @@ def tf_mixed_norm(evoked, forward, noise_cov,
     logger.info('Whitening data matrix.')
     M = np.dot(whitener, M)
 
-    # Scaling to make setting of alpha easy
     n_steps = np.ceil(M.shape[1] / tstep.astype(float)).astype(int)
     n_freqs = wsize // 2 + 1
     n_coefs = n_steps * n_freqs
     phi = _Phi(wsize, tstep, n_coefs)
 
+    # Scaling to make setting of tol and alpha easy
+    tol *= sum_squared(M)
     alpha_max = norm_epsilon_inf(gain, M, phi, l1_ratio, n_dip_per_pos)
     alpha_max *= 0.01
     gain /= alpha_max
     source_weighting /= alpha_max
 
-    X, active_set, E = tf_mixed_norm_solver(
-        M, gain, alpha_space, alpha_time, wsize=wsize, tstep=tstep,
-        maxit=maxit, tol=tol, verbose=verbose, n_orient=n_dip_per_pos,
-        dgap_freq=dgap_freq, debias=debias)
+    if n_tfmxne_iter == 1:
+        X, active_set, E = tf_mixed_norm_solver(
+            M, gain, alpha_space, alpha_time, wsize=wsize, tstep=tstep,
+            maxit=maxit, tol=tol, verbose=verbose, n_orient=n_dip_per_pos,
+            dgap_freq=dgap_freq, debias=debias)
+    else:
+        X, active_set, E = iterative_tf_mixed_norm_solver(
+            M, gain, alpha_space, alpha_time, wsize=wsize, tstep=tstep,
+            n_tfmxne_iter=n_tfmxne_iter, maxit=maxit, tol=tol, verbose=verbose,
+            n_orient=n_dip_per_pos, dgap_freq=dgap_freq, debias=debias)
 
     if active_set.sum() == 0:
         raise Exception("No active dipoles found. "
@@ -641,7 +650,7 @@ def tf_mixed_norm(evoked, forward, noise_cov,
     M_estimated = np.dot(gain[:, active_set], X)
 
     if mask is not None:
-        active_set_tmp = np.zeros(len(mask), dtype=np.bool)
+        active_set_tmp = np.zeros(len(mask), dtype=bool)
         active_set_tmp[mask] = active_set
         active_set = active_set_tmp
         del active_set_tmp
@@ -658,7 +667,8 @@ def tf_mixed_norm(evoked, forward, noise_cov,
             M, M_estimated, verbose=None)
     else:
         out = _make_sparse_stc(
-            X, active_set, forward, evoked.times[0], 1.0 / info['sfreq'])
+            X, active_set, forward, evoked.times[0], 1.0 / info['sfreq'],
+            pick_ori=pick_ori)
 
     logger.info('[done]')
 

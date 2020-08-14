@@ -20,6 +20,7 @@ repeatedly typing ``mne.preprocessing`` we'll directly import a few functions
 and classes from that submodule:
 """
 
+
 import os
 import mne
 from mne.preprocessing import (ICA, create_eog_epochs, create_ecg_epochs,
@@ -39,7 +40,6 @@ raw.crop(tmax=60.)
 #     enough you may not even need to repair them to get good analysis results.
 #     See :ref:`tut-artifact-overview` for guidance on detecting and
 #     visualizing various types of artifact.
-#
 #
 # What is ICA?
 # ^^^^^^^^^^^^
@@ -65,6 +65,31 @@ raw.crop(tmax=60.)
 # ICA in MNE-Python
 # ~~~~~~~~~~~~~~~~~
 #
+# .. sidebar:: ICA and dimensionality reduction
+#
+#     If you want to perform ICA with *no* dimensionality reduction (other than
+#     the number of Independent Components (ICs) given in ``n_components``, and
+#     any subsequent exclusion of ICs you specify in ``ICA.exclude``), pass
+#     ``max_pca_components=None`` and ``n_pca_components=None`` (these are the
+#     default values).
+#
+#     However, if you *do* want to reduce dimensionality, consider this
+#     example: if you have 300 sensor channels and you set
+#     ``max_pca_components=200``, ``n_components=50`` and
+#     ``n_pca_components=None``, then the PCA step yields 200 PCs, the first 50
+#     PCs are sent to the ICA algorithm (yielding 50 ICs), and during
+#     reconstruction :meth:`~mne.preprocessing.ICA.apply` will use the 50 ICs
+#     plus PCs number 51-200 (the full PCA residual). If instead you specify
+#     ``n_pca_components=120`` then :meth:`~mne.preprocessing.ICA.apply` will
+#     reconstruct using the 50 ICs plus the first 70 PCs in the PCA residual
+#     (numbers 51-120).
+#
+#     **If you have previously been using EEGLAB**'s ``runica()`` and are
+#     looking for the equivalent of its ``'pca', n`` option to reduce
+#     dimensionality via PCA before the ICA step, set ``max_pca_components=n``,
+#     while leaving ``n_components`` and ``n_pca_components`` at their default
+#     (i.e., ``None``).
+#
 # MNE-Python implements three different ICA algorithms: ``fastica`` (the
 # default), ``picard``, and ``infomax``. FastICA and Infomax are both in fairly
 # widespread use; Picard is a newer (2017) algorithm that is expected to
@@ -84,23 +109,6 @@ raw.crop(tmax=60.)
 # :class:`~mne.io.Raw` or :class:`~mne.Epochs` object using the
 # :class:`~mne.preprocessing.ICA` object's :meth:`~mne.preprocessing.ICA.apply`
 # method.
-#
-# .. sidebar:: ICA and dimensionality reduction
-#
-#     If you want to perform ICA with no dimensionality reduction (other than
-#     the number of Independent Components (ICs) given in ``n_components``, and
-#     any subsequent exclusion of ICs you specify in ``ICA.exclude``), pass
-#     ``max_pca_components=None`` and ``n_pca_components=None`` (these are the
-#     default values). If you want to reduce dimensionality, consider this
-#     example: if you have 300 sensor channels and you set
-#     ``max_pca_components=200``, ``n_components=50`` and
-#     ``n_pca_components=None``, then the PCA step yields 200 PCs, the first 50
-#     PCs are sent to the ICA algorithm (yielding 50 ICs), and during
-#     reconstruction :meth:`~mne.preprocessing.ICA.apply` will use the 50 ICs
-#     plus PCs number 51-200 (the full PCA residual). If instead you specify
-#     ``n_pca_components=120`` then :meth:`~mne.preprocessing.ICA.apply` will
-#     reconstruct using the 50 ICs plus the first 70 PCs in the PCA residual
-#     (numbers 51-120).
 #
 # As is typically done with ICA, the data are first scaled to unit variance and
 # whitened using principal components analysis (PCA) before performing the ICA
@@ -132,7 +140,6 @@ raw.crop(tmax=60.)
 # for further details. Next we'll walk through an extended example that
 # illustrates each of these steps in greater detail.
 #
-#
 # Example: EOG and ECG artifact repair
 # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 #
@@ -153,6 +160,7 @@ raw.plot(order=artifact_picks, n_channels=len(artifact_picks))
 # :ref:`tut-artifact-overview` tutorial:
 
 eog_evoked = create_eog_epochs(raw).average()
+eog_evoked.apply_baseline(baseline=(None, -0.2))
 eog_evoked.plot_joint()
 
 ###############################################################################
@@ -160,6 +168,7 @@ eog_evoked.plot_joint()
 # :func:`~mne.preprocessing.create_ecg_epochs`:
 
 ecg_evoked = create_ecg_epochs(raw).average()
+ecg_evoked.apply_baseline(baseline=(None, -0.2))
 ecg_evoked.plot_joint()
 
 ###############################################################################
@@ -366,7 +375,8 @@ ica.plot_sources(eog_evoked)
 
 ica.exclude = []
 # find which ICs match the ECG pattern
-ecg_indices, ecg_scores = ica.find_bads_ecg(raw, method='correlation')
+ecg_indices, ecg_scores = ica.find_bads_ecg(raw, method='correlation',
+                                            threshold='auto')
 ica.exclude = ecg_indices
 
 # barplot of ICA component "ECG match" scores
@@ -396,7 +406,8 @@ new_ica = ICA(n_components=30, random_state=97)
 new_ica.fit(filt_raw)
 
 # find which ICs match the ECG pattern
-ecg_indices, ecg_scores = new_ica.find_bads_ecg(raw, method='correlation')
+ecg_indices, ecg_scores = new_ica.find_bads_ecg(raw, method='correlation',
+                                                threshold='auto')
 new_ica.exclude = ecg_indices
 
 # barplot of ICA component "ECG match" scores
@@ -442,6 +453,22 @@ del raw, filt_raw, ica, new_ica
 # dataset has 109 subjects, we'll just download one run (a left/right hand
 # movement task) from each of the first 4 subjects:
 
+mapping = {
+    'Fc5.': 'FC5', 'Fc3.': 'FC3', 'Fc1.': 'FC1', 'Fcz.': 'FCz', 'Fc2.': 'FC2',
+    'Fc4.': 'FC4', 'Fc6.': 'FC6', 'C5..': 'C5', 'C3..': 'C3', 'C1..': 'C1',
+    'Cz..': 'Cz', 'C2..': 'C2', 'C4..': 'C4', 'C6..': 'C6', 'Cp5.': 'CP5',
+    'Cp3.': 'CP3', 'Cp1.': 'CP1', 'Cpz.': 'CPz', 'Cp2.': 'CP2', 'Cp4.': 'CP4',
+    'Cp6.': 'CP6', 'Fp1.': 'Fp1', 'Fpz.': 'Fpz', 'Fp2.': 'Fp2', 'Af7.': 'AF7',
+    'Af3.': 'AF3', 'Afz.': 'AFz', 'Af4.': 'AF4', 'Af8.': 'AF8', 'F7..': 'F7',
+    'F5..': 'F5', 'F3..': 'F3', 'F1..': 'F1', 'Fz..': 'Fz', 'F2..': 'F2',
+    'F4..': 'F4', 'F6..': 'F6', 'F8..': 'F8', 'Ft7.': 'FT7', 'Ft8.': 'FT8',
+    'T7..': 'T7', 'T8..': 'T8', 'T9..': 'T9', 'T10.': 'T10', 'Tp7.': 'TP7',
+    'Tp8.': 'TP8', 'P7..': 'P7', 'P5..': 'P5', 'P3..': 'P3', 'P1..': 'P1',
+    'Pz..': 'Pz', 'P2..': 'P2', 'P4..': 'P4', 'P6..': 'P6', 'P8..': 'P8',
+    'Po7.': 'PO7', 'Po3.': 'PO3', 'Poz.': 'POz', 'Po4.': 'PO4', 'Po8.': 'PO8',
+    'O1..': 'O1', 'Oz..': 'Oz', 'O2..': 'O2', 'Iz..': 'Iz'
+}
+
 raws = list()
 icas = list()
 
@@ -450,7 +477,7 @@ for subj in range(4):
     fname = mne.datasets.eegbci.load_data(subj + 1, runs=[3])[0]
     raw = mne.io.read_raw_edf(fname)
     # remove trailing `.` from channel names so we can set montage
-    raw.rename_channels(lambda x: x.rstrip('.'))
+    raw.rename_channels(mapping)
     raw.set_montage('standard_1005')
     # fit ICA
     ica = ICA(n_components=30, random_state=97)

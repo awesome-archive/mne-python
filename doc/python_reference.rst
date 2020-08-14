@@ -53,7 +53,7 @@ Reading raw data
    :toctree: generated/
 
    anonymize_info
-   find_edf_events
+   read_raw
    read_raw_artemis123
    read_raw_bti
    read_raw_cnt
@@ -64,6 +64,8 @@ Reading raw data
    read_raw_gdf
    read_raw_kit
    read_raw_nicolet
+   read_raw_nirx
+   read_raw_snirf
    read_raw_eeglab
    read_raw_brainvision
    read_raw_egi
@@ -99,7 +101,6 @@ File I/O
 .. autosummary::
    :toctree: generated
 
-   decimate_surface
    channel_type
    channel_indices_by_type
    get_head_surf
@@ -119,6 +120,7 @@ File I/O
    read_events
    read_evokeds
    read_evoked_fieldtrip
+   read_freesurfer_lut
    read_forward_solution
    read_label
    read_morph_map
@@ -185,11 +187,14 @@ Datasets
    brainstorm.bst_resting.data_path
    brainstorm.bst_raw.data_path
    eegbci.load_data
+   eegbci.standardize
    fetch_aparc_sub_parcellation
    fetch_fsaverage
    fetch_hcp_mmp_parcellation
+   fnirs_motor.data_path
    hf_sef.data_path
    kiloword.data_path
+   limo.load_data
    misc.data_path
    mtrf.data_path
    multimodal.data_path
@@ -201,6 +206,7 @@ Datasets
    spm_face.data_path
    visual_92_categories.data_path
    phantom_4dbti.data_path
+   refmeg_noise.data_path
 
 
 Visualization
@@ -219,8 +225,10 @@ Visualization
 
    ClickableImage
    add_background_image
+   centers_to_edges
    compare_fiff
    circular_layout
+   iter_topography
    mne_analyze_colormap
    plot_bem
    plot_brain_colorbar
@@ -231,6 +239,7 @@ Visualization
    plot_dipole_locations
    plot_drop_log
    plot_epochs
+   plot_epochs_psd_topomap
    plot_events
    plot_evoked
    plot_evoked_image
@@ -258,6 +267,7 @@ Visualization
    plot_sensors_connectivity
    plot_snr_estimate
    plot_source_estimates
+   link_brains
    plot_volume_source_estimates
    plot_vector_source_estimates
    plot_sparse_source_estimates
@@ -270,9 +280,11 @@ Visualization
    set_3d_backend
    get_3d_backend
    use_3d_backend
+   set_3d_options
    set_3d_view
    set_3d_title
    create_3d_figure
+   get_brain_class
 
 
 Preprocessing
@@ -304,30 +316,31 @@ Projections:
    :toctree: generated/
 
    Layout
-   Montage
    DigMontage
    fix_mag_coil_types
-   read_montage
    read_polhemus_fastscan
    get_builtin_montages
-   read_dig_montage
    make_dig_montage
    read_dig_polhemus_isotrak
-   read_dig_captrack
+   read_dig_captrak
+   read_dig_dat
    read_dig_egi
    read_dig_fif
+   read_dig_hpts
+   make_standard_montage
+   read_custom_montage
    compute_dev_head_t
    read_layout
    find_layout
    make_eeg_layout
    make_grid_layout
-   make_standard_montage
-   find_ch_connectivity
-   read_ch_connectivity
+   find_ch_adjacency
+   read_ch_adjacency
    equalize_channels
    rename_channels
    generate_2d_layout
    make_1020_channel_selections
+   combine_channels
 
 :py:mod:`mne.preprocessing`:
 
@@ -342,10 +355,15 @@ Projections:
 
    ICA
    Xdawn
+   annotate_movement
+   annotate_muscle_zscore
+   compute_average_dev_head_t
+   compute_current_source_density
    compute_proj_ecg
    compute_proj_eog
    create_ecg_epochs
    create_eog_epochs
+   find_bad_channels_maxwell
    find_ecg_events
    find_eog_events
    fix_stim_artifact
@@ -357,8 +375,27 @@ Projections:
    oversampled_temporal_projection
    peak_finder
    read_ica
-   run_ica
+   regress_artifact
    corrmap
+   read_ica_eeglab
+
+:py:mod:`mne.preprocessing.nirs`:
+
+.. currentmodule:: mne.preprocessing.nirs
+
+.. automodule:: mne.preprocessing.nirs
+   :no-members:
+   :no-inherited-members:
+
+.. autosummary::
+   :toctree: generated/
+
+   optical_density
+   beer_lambert_law
+   source_detector_distances
+   short_channels
+   scalp_coupling_index
+   temporal_derivative_distribution_repair
 
 EEG referencing:
 
@@ -400,6 +437,10 @@ EEG referencing:
 .. autosummary::
    :toctree: generated/
 
+   compute_chpi_amplitudes
+   compute_chpi_locs
+   compute_head_pos
+   extract_chpi_locs_ctf
    filter_chpi
    head_pos_to_trans_rot_t
    read_head_pos
@@ -419,6 +460,7 @@ EEG referencing:
    Transform
    quat_to_rot
    rot_to_quat
+   read_ras_mni_t
 
 Events
 ======
@@ -434,6 +476,7 @@ Events
    find_events
    find_stim_steps
    make_fixed_length_events
+   make_fixed_length_epochs
    merge_events
    parse_config
    pick_events
@@ -442,6 +485,7 @@ Events
    write_events
    concatenate_epochs
    events_from_annotations
+   annotations_from_events
 
 :py:mod:`mne.event`:
 
@@ -497,6 +541,19 @@ Sensor Space Data
    read_reject_parameters
    read_selection
    rename_channels
+
+:py:mod:`mne.baseline`:
+
+.. automodule:: mne.baseline
+   :no-members:
+   :no-inherited-members:
+
+.. currentmodule:: mne.baseline
+
+.. autosummary::
+   :toctree: generated/
+
+   rescale
 
 
 Covariance computation
@@ -559,6 +616,7 @@ Forward Modeling
    apply_forward_raw
    average_forward_solutions
    convert_forward_solution
+   decimate_surface
    dig_mri_distances
    forward.compute_depth_prior
    forward.compute_orient_prior
@@ -580,6 +638,7 @@ Forward Modeling
    setup_source_space
    setup_volume_source_space
    surface.complete_surface_info
+   surface.read_curvature
    use_coil_def
    write_bem_surfaces
    write_trans
@@ -619,6 +678,7 @@ Inverse Solutions
 
    InverseOperator
    apply_inverse
+   apply_inverse_cov
    apply_inverse_epochs
    apply_inverse_raw
    compute_source_psd
@@ -631,8 +691,10 @@ Inverse Solutions
    source_band_induced_power
    source_induced_power
    write_inverse_operator
-   point_spread_function
-   cross_talk_function
+   make_inverse_resolution_matrix
+   resolution_metrics
+   get_cross_talk
+   get_point_spread
 
 :py:mod:`mne.inverse_sparse`:
 
@@ -675,6 +737,7 @@ Inverse Solutions
    rap_music
    tf_dics
    tf_lcmv
+   make_lcmv_resolution_matrix
 
 .. currentmodule:: mne
 
@@ -710,6 +773,7 @@ Source Space Data
    BiHemiLabel
    Label
    MixedSourceEstimate
+   MixedVectorSourceEstimate
    SourceEstimate
    VectorSourceEstimate
    VolSourceEstimate
@@ -853,6 +917,7 @@ options):
    :toctree: generated/
 
    ttest_1samp_no_p
+   ttest_ind_no_p
    f_oneway
    f_mway_rm
    f_threshold_mway_rm
@@ -872,6 +937,7 @@ Non-parametric (clustering) resampling methods:
 .. autosummary::
    :toctree: generated/
 
+   combine_adjacency
    permutation_cluster_test
    permutation_cluster_1samp_test
    permutation_t_test
@@ -880,22 +946,22 @@ Non-parametric (clustering) resampling methods:
    summarize_clusters_stc
    bootstrap_confidence_interval
 
-Compute ``connectivity`` matrices for cluster-level statistics:
+Compute ``adjacency`` matrices for cluster-level statistics:
 
 .. currentmodule:: mne
 
 .. autosummary::
    :toctree: generated/
 
-   channels.find_ch_connectivity
-   channels.read_ch_connectivity
-   spatial_dist_connectivity
-   spatial_src_connectivity
-   spatial_tris_connectivity
-   spatial_inter_hemi_connectivity
-   spatio_temporal_src_connectivity
-   spatio_temporal_tris_connectivity
-   spatio_temporal_dist_connectivity
+   channels.find_ch_adjacency
+   channels.read_ch_adjacency
+   spatial_dist_adjacency
+   spatial_src_adjacency
+   spatial_tris_adjacency
+   spatial_inter_hemi_adjacency
+   spatio_temporal_src_adjacency
+   spatio_temporal_tris_adjacency
+   spatio_temporal_dist_adjacency
 
 
 Simulation
@@ -996,6 +1062,7 @@ Logging and Configuration
    set_log_level
    set_log_file
    set_config
+   set_cache_dir
    sys_info
    verbose
 

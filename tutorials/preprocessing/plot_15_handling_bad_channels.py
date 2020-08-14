@@ -36,7 +36,7 @@ raw = mne.io.read_raw_fif(sample_data_raw_file, verbose=False)
 # this by
 # keeping track of the bad channel indices in a list and looking at that list
 # when doing analysis or plotting tasks. The list of bad channels is stored in
-# the `'bads'` field of the :class:`~mne.Info` object that is attached to
+# the ``'bads'`` field of the :class:`~mne.Info` object that is attached to
 # :class:`~mne.io.Raw`, :class:`~mne.Epochs`, and :class:`~mne.Evoked` objects.
 
 print(raw.info['bads'])
@@ -197,7 +197,7 @@ epochs = mne.Epochs(raw2, events=events)['2'].average().plot()
 # spline method [1]_, which projects the sensor locations onto a unit sphere
 # and interpolates the signal at the bad sensor locations based on the signals
 # at the good locations. Mathematical details are presented in
-# :ref:`channel_interpolation`. Interpolation of MEG channels uses the field
+# :ref:`channel-interpolation`. Interpolation of MEG channels uses the field
 # mapping algorithms used in computing the :ref:`forward solution
 # <tut-forward>`.
 #

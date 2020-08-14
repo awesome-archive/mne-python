@@ -74,11 +74,10 @@ erm_fname = op.join(data_path, 'MEG', 'bst_auditory',
 # In the memory saving mode we use ``preload=False`` and use the memory
 # efficient IO which loads the data on demand. However, filtering and some
 # other functions require the data to be preloaded in the memory.
-preload = not use_precomputed
-raw = read_raw_ctf(raw_fname1, preload=preload)
+raw = read_raw_ctf(raw_fname1)
 n_times_run1 = raw.n_times
-mne.io.concatenate_raws([raw, read_raw_ctf(raw_fname2, preload=preload)])
-raw_erm = read_raw_ctf(erm_fname, preload=preload)
+mne.io.concatenate_raws([raw, read_raw_ctf(raw_fname2)])
+raw_erm = read_raw_ctf(erm_fname)
 
 ###############################################################################
 # Data channel array consisted of 274 MEG axial gradiometers, 26 MEG reference
@@ -98,7 +97,7 @@ raw_erm = read_raw_ctf(erm_fname, preload=preload)
 raw.set_channel_types({'HEOG': 'eog', 'VEOG': 'eog', 'ECG': 'ecg'})
 if not use_precomputed:
     # Leave out the two EEG channels for easier computation of forward.
-    raw.pick(['meg', 'stim', 'misc', 'eog', 'ecg'])
+    raw.pick(['meg', 'stim', 'misc', 'eog', 'ecg']).load_data()
 
 ###############################################################################
 # For noise reduction, a set of bad segments have been identified and stored
@@ -276,7 +275,7 @@ evoked_dev.plot_topomap(times=times, title='Deviant', time_unit='s')
 # We can see the MMN effect more clearly by looking at the difference between
 # the two conditions. P50 and N100 are no longer visible, but MMN/P200 and
 # P300 are emphasised.
-evoked_difference = combine_evoked([evoked_dev, -evoked_std], weights='equal')
+evoked_difference = combine_evoked([evoked_dev, evoked_std], weights=[1, -1])
 evoked_difference.plot(window_title='Difference', gfp=True, time_unit='s')
 
 ###############################################################################
@@ -289,9 +288,7 @@ cov.plot(raw_erm.info)
 del raw_erm
 
 ###############################################################################
-# The transformation is read from a file. More information about coregistering
-# the data, see :ref:`c_legacy_ch_interactive_analysis` or
-# :func:`mne.gui.coregistration`.
+# The transformation is read from a file:
 trans_fname = op.join(data_path, 'MEG', 'bst_auditory',
                       'bst_auditory-trans.fif')
 trans = mne.read_trans(trans_fname)
@@ -303,7 +300,7 @@ trans = mne.read_trans(trans_fname)
 # solution are read from a file. Since the data only contains MEG channels, we
 # only need the inner skull surface for making the forward solution. For more
 # information: :ref:`CHDBBCEJ`, :func:`mne.setup_source_space`,
-# :ref:`create_bem_model`, :func:`mne.bem.make_watershed_bem`.
+# :ref:`bem-model`, :func:`mne.bem.make_watershed_bem`.
 if use_precomputed:
     fwd_fname = op.join(data_path, 'MEG', 'bst_auditory',
                         'bst_auditory-meg-oct-6-fwd.fif')

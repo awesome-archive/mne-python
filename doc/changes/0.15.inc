@@ -8,7 +8,7 @@ Changelog
 
 - :meth:`mne.channels.Layout.plot` and :func:`mne.viz.plot_layout` now allows plotting a subset of channels with ``picks`` argument by `Jaakko Leppakangas`_
 
-- Add .bvef extension (BrainVision Electrodes File) to :func:`mne.channels.read_montage` by `Jean-Baptiste Schiratti`_
+- Add .bvef extension (BrainVision Electrodes File) to ``mne.channels.read_montage`` by `Jean-Baptiste Schiratti`_
 
 - Add :func:`mne.decoding.cross_val_multiscore` to allow scoring of multiple tasks, typically used with :class:`mne.decoding.SlidingEstimator`, by `Jean-Remi King`_
 
@@ -36,13 +36,13 @@ Changelog
 
 - Add options to change time windowing in :func:`mne.chpi.filter_chpi` by `Eric Larson`_
 
-- :meth:`mne.channels.Montage.plot`, :meth:`mne.channels.DigMontage.plot`, and :func:`mne.viz.plot_montage` now allow plotting channel locations as a topomap by `Clemens Brunner`_
+- ``mne.channels.Montage.plot``, :meth:`mne.channels.DigMontage.plot`, and :func:`mne.viz.plot_montage` now allow plotting channel locations as a topomap by `Clemens Brunner`_
 
 - Add ``background_color`` parameter to :meth:`mne.Evoked.plot_topo` and :func:`mne.viz.plot_evoked_topo` and improve axes rendering as done in :func:`mne.viz.plot_compare_evokeds` by `Alex Gramfort`_
 
 - Add support for GDF files in :func:`mne.io.read_raw_edf` by `Nicolas Barascud`_
 
-- Add :func:`mne.io.find_edf_events` for getting the events as they are in the EDF/GDF header by `Jaakko Leppakangas`_
+- Add ``mne.io.find_edf_events`` for getting the events as they are in the EDF/GDF header by `Jaakko Leppakangas`_
 
 - Speed up :meth:`mne.io.Raw.plot` and :meth:`mne.Epochs.plot` using (automatic) decimation based on low-passing with ``decim='auto'`` parameter by `Eric Larson`_ and `Jaakko Leppakangas`_
 
@@ -52,15 +52,15 @@ Changelog
 
 - Add :func:`mne.inverse_sparse.make_stc_from_dipoles` to generate stc objects from lists of dipoles by `Daniel Strohmeier`_
 
-- Add :func:`mne.channels.find_ch_connectivity` that tries to infer the correct connectivity template using channel info. If no template is found, it computes the connectivity matrix using :class:`Delaunay <scipy.spatial.Delaunay>` triangulation of the 2d projected channel positions by `Jaakko Leppakangas`_
+- Add ``mne.channels.find_ch_connectivity`` that tries to infer the correct connectivity template using channel info. If no template is found, it computes the connectivity matrix using :class:`Delaunay <scipy.spatial.Delaunay>` triangulation of the 2d projected channel positions by `Jaakko Leppakangas`_
 
 - Add IO support for EGI MFF format by `Jaakko Leppakangas`_  and `ramonapariciog`_
 
 - Add option to use matplotlib backend when plotting with :func:`mne.viz.plot_source_estimates` by `Jaakko Leppakangas`_
 
-- Add :meth:`mne.channels.Montage.get_pos2d` to get the 2D positions of channels in a montage by `Clemens Brunner`_
+- Add ``mne.channels.Montage.get_pos2d`` to get the 2D positions of channels in a montage by `Clemens Brunner`_
 
-- Add MGH 60- and 70-channel standard montages to :func:`mne.channels.read_montage` by `Eric Larson`_
+- Add MGH 60- and 70-channel standard montages to ``mne.channels.read_montage`` by `Eric Larson`_
 
 - Add option for embedding SVG instead of PNG in HTML for :class:`mne.Report` by `Eric Larson`_
 
@@ -82,13 +82,13 @@ Changelog
 
 - Add support for :class:`numpy.random.RandomState` argument to ``seed`` in :mod:`statistical clustering functions <mne.stats>` and better documentation of exact 1-sample tests by `Eric Larson`_
 
-- Extend :func:`mne.viz.plot_epochs_image`/:meth:`mne.Epochs.plot_image` with regards to grouping by or aggregating over channels. See the new example at `examples/visualization/plot_roi_erpimage_by_rt.py` by `Jona Sassenhagen`_
+- Extend :func:`mne.viz.plot_epochs_image`/:meth:`mne.Epochs.plot_image` with regards to grouping by or aggregating over channels. See the new example at ``examples/visualization/plot_roi_erpimage_by_rt.py`` by `Jona Sassenhagen`_
 
 - Add bootstrapped confidence intervals to :func:`mne.viz.plot_compare_evokeds` by `Jona Sassenhagen`_ and `Denis Engemann`_
 
 - Add example on how to plot ERDS maps (also known as ERSP) by `Clemens Brunner`_
 
-- Add support for volume source spaces to :func:`spatial_src_connectivity` and :func:`spatio_temporal_src_connectivity` by `Alex Gramfort`_
+- Add support for volume source spaces to ``spatial_src_connectivity`` and ``spatio_temporal_src_connectivity`` by `Alex Gramfort`_
 
 - Plotting raw data (:func:`mne.viz.plot_raw` or :meth:`mne.io.Raw.plot`) with events now includes event numbers (if there are not more than 50 events on a page) by `Clemens Brunner`_
 
@@ -112,7 +112,7 @@ BUG
 
 - Fix bug in :meth:`mne.io.read_raw_brainvision` read .vhdr files with ANSI codepage by `Okba Bekhelifi`_ and `Alex Gramfort`_
 
-- Fix unit scaling when reading in EGI digitization files using :func:`mne.channels.read_dig_montage` by `Matt Boggess`_
+- Fix unit scaling when reading in EGI digitization files using ``mne.channels.read_dig_montage`` by `Matt Boggess`_
 
 - Fix ``picks`` default in :meth:`mne.io.Raw.filter` to include ``ref_meg`` channels by default by `Eric Larson`_
 
@@ -120,7 +120,7 @@ BUG
 
 - :meth:`mne.concatenate_epochs` now maintains the relative position of events during concatenation by `Alexandre Barachant`_
 
-- Fix bug in script `mne make_scalp_surfaces` by `Denis Engemann`_ (this bug prevented creation of high-resolution meshes when they were absent in the first place.)
+- Fix bug in script ``mne make_scalp_surfaces`` by `Denis Engemann`_ (this bug prevented creation of high-resolution meshes when they were absent in the first place.)
 
 - Fix writing of raw files with empty set of annotations by `Jaakko Leppakangas`_
 
@@ -156,7 +156,7 @@ BUG
 
 - Fix :func:`mne.io.read_raw_edf` to infer sampling rate correctly when reading EDF+ files where tal-channel has a higher sampling frequency by `Jaakko Leppakangas`_
 
-- Fix default value of ``kind='topomap'`` in :meth:`mne.channels.Montage.plot` to be consistent with :func:`mne.viz.plot_montage` by `Clemens Brunner`_
+- Fix default value of ``kind='topomap'`` in ``mne.channels.Montage.plot`` to be consistent with :func:`mne.viz.plot_montage` by `Clemens Brunner`_
 
 - Fix bug in :meth:`to_data_frame <mne.io.Raw.to_data_frame>` where non-consecutive picks would make the function crash by `Jaakko Leppakangas`_
 

@@ -1,5 +1,5 @@
 # Authors: Alexandre Gramfort <alexandre.gramfort@inria.fr>
-#          Matti Hamalainen <msh@nmr.mgh.harvard.edu>
+#          Matti Hämäläinen <msh@nmr.mgh.harvard.edu>
 #          Denis Engemann <denis.engemann@gmail.com>
 #
 # License: BSD (3-clause)
@@ -109,8 +109,8 @@ def read_ctf_comp(fid, node, chs, verbose=None):
             #   Calibrate...
             _calibrate_comp(one, chs, mat['row_names'], mat['col_names'])
         else:
-            one['rowcals'] = np.ones(mat['data'].shape[0], dtype=np.float)
-            one['colcals'] = np.ones(mat['data'].shape[1], dtype=np.float)
+            one['rowcals'] = np.ones(mat['data'].shape[0], dtype=np.float64)
+            one['colcals'] = np.ones(mat['data'].shape[1], dtype=np.float64)
 
         compdata.append(one)
 

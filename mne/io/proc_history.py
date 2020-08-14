@@ -3,8 +3,6 @@
 #          Eric Larson <larson.eric.d@gmail.com>
 # License: Simplified BSD
 
-from os import path as op
-
 import numpy as np
 from scipy.sparse import csc_matrix
 
@@ -15,7 +13,7 @@ from .write import (start_block, end_block, write_int, write_float,
                     write_float_sparse, write_id)
 from .tag import find_tag
 from .constants import FIFF
-from ..utils import warn
+from ..utils import warn, _check_fname
 
 _proc_keys = ['parent_file_id', 'block_id', 'parent_block_id',
               'date', 'experimenter', 'creator']
@@ -94,12 +92,11 @@ def _read_proc_history(fid, tree):
                 else:
                     warn('Unknown processing history item %s' % kind)
             record['max_info'] = _read_maxfilter_record(fid, proc_record)
-            smartshields = dir_tree_find(proc_record,
-                                         FIFF.FIFFB_SMARTSHIELD)
-            if len(smartshields) > 0:
+            iass = dir_tree_find(proc_record, FIFF.FIFFB_IAS)
+            if len(iass) > 0:
                 # XXX should eventually populate this
-                ss = [dict() for _ in range(len(smartshields))]
-                record['smartshield'] = ss
+                ss = [dict() for _ in range(len(iass))]
+                record['ias'] = ss
             if len(record['max_info']) > 0:
                 out.append(record)
     return out
@@ -115,11 +112,11 @@ def _write_proc_history(fid, info):
                 if key in record:
                     writer(fid, id_, record[key])
             _write_maxfilter_record(fid, record['max_info'])
-            if 'smartshield' in record:
-                for _ in record['smartshield']:
-                    start_block(fid, FIFF.FIFFB_SMARTSHIELD)
+            if 'ias' in record:
+                for _ in record['ias']:
+                    start_block(fid, FIFF.FIFFB_IAS)
                     # XXX should eventually populate this
-                    end_block(fid, FIFF.FIFFB_SMARTSHIELD)
+                    end_block(fid, FIFF.FIFFB_IAS)
             end_block(fid, FIFF.FIFFB_PROCESSING_RECORD)
         end_block(fid, FIFF.FIFFB_PROCESSING_HISTORY)
 
@@ -166,8 +163,7 @@ _sss_cal_casters = (np.array, np.array)
 
 def _read_ctc(fname):
     """Read cross-talk correction matrix."""
-    if not isinstance(fname, str) or not op.isfile(fname):
-        raise ValueError('fname must be a file that exists, not %s' % fname)
+    fname = _check_fname(fname, overwrite='read', must_exist=True)
     f, tree, _ = fiff_open(fname)
     with f as fid:
         sss_ctc = _read_maxfilter_record(fid, tree)['sss_ctc']

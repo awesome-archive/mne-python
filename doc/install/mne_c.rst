@@ -20,9 +20,8 @@ disk space. MATLAB is an optional dependency; the free `MATLAB runtime`_ is
 sufficient. If MATLAB is not present, the utilities ``mne_convert_mne_data``,
 ``mne_epochs2mat``, ``mne_raw2mat``, and ``mne_simu`` will not work.
 
-For boundary-element model (BEM) mesh generation (see :doc:`Creating the BEM
-meshes <../manual/appendix/bem_model>`), and for accessing the ``tkmedit``
-program from ``mne_analyze`` (see :ref:`CACCHCBF`), MNE-C needs access to a
+For boundary-element model (BEM) mesh generation, and for accessing the ``tkmedit``
+program from ``mne_analyze``, MNE-C needs access to a
 working installation of :doc:`FreeSurfer <freesurfer>`, including the
 environment variables ``FREESURFER_HOME``, ``SUBJECTS_DIR``, and ``SUBJECT``.
 
@@ -164,8 +163,8 @@ effect or you need a faster graphics adapter.
 Troubleshooting MNE-C installation
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-If MNE-C can't find ``libxp.so.6``, download libxp6 from ubuntu_ or debian_ and
-install with ``dpkg`` or similar:
+If MNE-C can't find ``libxp.so.6``, download libxp6 from debian_ or `pkgs.org`_
+and install with ``dpkg`` or similar:
 
 .. code-block:: console
 
@@ -183,8 +182,6 @@ a typical 64-bit Ubuntu-like system this would be accomplished by:
 If you encounter other errors installing MNE-C, please send a message to the
 `MNE mailing list`_.
 
-**Next:** :doc:`advanced`
-
 .. links
 
 .. _MNE-C download page: http://www.nmr.mgh.harvard.edu/martinos/userInfo/data/MNE_register/index.php
@@ -194,5 +191,5 @@ If you encounter other errors installing MNE-C, please send a message to the
 .. _Homebrew: https://brew.sh/
 .. _XCode developer tools: http://appstore.com/mac/apple/xcode
 .. _xquartz: https://www.xquartz.org/
-.. _ubuntu: https://packages.ubuntu.com/search?keywords=libxp6
-.. _debian: https://packages.debian.org/search?keywords=libxp6
+.. _debian: https://packages.debian.org/jessie/amd64/libxp6/download
+.. _pkgs.org: https://pkgs.org/download/libxp6

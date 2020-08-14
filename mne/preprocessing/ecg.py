@@ -6,7 +6,6 @@
 
 import numpy as np
 
-from .. import pick_types, pick_channels
 from ..annotations import _annotations_starts_stops
 from ..utils import logger, verbose, sum_squared, warn
 from ..filter import filter_data
@@ -14,8 +13,8 @@ from ..epochs import Epochs, BaseEpochs
 from ..io.base import BaseRaw
 from ..evoked import Evoked
 from ..io import RawArray
-from ..io.pick import _picks_to_idx
-from .. import create_info
+from ..io.meas_info import create_info
+from ..io.pick import _picks_to_idx, pick_types, pick_channels
 
 
 @verbose
@@ -95,7 +94,7 @@ def qrs_detector(sfreq, ecg, thresh_value=0.6, levels=2.5, n_thresh=3,
             if window[0] > thresh1:
                 max_time = np.argmax(window)
                 time.append(ii + max_time)
-                nx = np.sum(np.diff(((window > thresh1).astype(np.int) ==
+                nx = np.sum(np.diff(((window > thresh1).astype(np.int64) ==
                                      1).astype(int)))
                 numcross.append(nx)
                 rms.append(np.sqrt(sum_squared(window) / window.size))
@@ -136,15 +135,15 @@ def qrs_detector(sfreq, ecg, thresh_value=0.6, levels=2.5, n_thresh=3,
 def find_ecg_events(raw, event_id=999, ch_name=None, tstart=0.0,
                     l_freq=5, h_freq=35, qrs_threshold='auto',
                     filter_length='10s', return_ecg=False,
-                    reject_by_annotation=None, verbose=None):
+                    reject_by_annotation=True, verbose=None):
     """Find ECG peaks.
 
     Parameters
     ----------
     raw : instance of Raw
-        The raw data
+        The raw data.
     event_id : int
-        The index to assign to found events
+        The index to assign to found events.
     ch_name : None | str
         The name of the channel to use for ECG peak detection.
         If None (default), a synthetic ECG channel is created from
@@ -166,8 +165,7 @@ def find_ecg_events(raw, event_id=999, ch_name=None, tstart=0.0,
     return_ecg : bool
         Return ecg channel if synthesized. Defaults to False. If True and
         and ecg exists this will yield None.
-    reject_by_annotation : bool
-        Whether to omit data that is annotated as bad.
+    %(reject_by_annotation_all)s
 
         .. versionadded:: 0.18
     %(verbose)s
@@ -186,12 +184,6 @@ def find_ecg_events(raw, event_id=999, ch_name=None, tstart=0.0,
     create_ecg_epochs
     compute_proj_ecg
     """
-    if reject_by_annotation is None:
-        if len(raw.annotations) > 0:
-            warn('reject_by_annotation in find_ecg_events defaults to False '
-                 'in 0.18 but will change to True in 0.19, set it explicitly '
-                 'to avoid this warning', DeprecationWarning)
-        reject_by_annotation = False
     skip_by_annotation = ('edge', 'bad') if reject_by_annotation else ()
     del reject_by_annotation
     idx_ecg = _get_ecg_channel_index(ch_name, raw)
@@ -281,13 +273,13 @@ def _get_ecg_channel_index(ch_name, inst):
 def create_ecg_epochs(raw, ch_name=None, event_id=999, picks=None, tmin=-0.5,
                       tmax=0.5, l_freq=8, h_freq=16, reject=None, flat=None,
                       baseline=None, preload=True, keep_ecg=False,
-                      reject_by_annotation=True, verbose=None):
+                      reject_by_annotation=True, decim=1, verbose=None):
     """Conveniently generate epochs around ECG artifact events.
 
     Parameters
     ----------
     raw : instance of Raw
-        The raw data
+        The raw data.
     ch_name : None | str
         The name of the channel to use for ECG peak detection.
         If None (default), ECG channel is used if present. If None and no
@@ -295,7 +287,7 @@ def create_ecg_epochs(raw, ch_name=None, event_id=999, picks=None, tmin=-0.5,
         cross channel average. Synthetic channel can only be created from
         MEG channels.
     event_id : int
-        The index to assign to found events
+        The index to assign to found events.
     %(picks_all)s
     tmin : float
         Start time before event.
@@ -336,12 +328,12 @@ def create_ecg_epochs(raw, ch_name=None, event_id=999, picks=None, tmin=-0.5,
         When ECG is synthetically created (after picking), should it be added
         to the epochs? Must be False when synthetic channel is not used.
         Defaults to False.
-    reject_by_annotation : bool
-        Whether to reject based on annotations. If True (default), epochs
-        overlapping with segments whose description begins with ``'bad'`` are
-        rejected. If False, no rejection based on annotations is performed.
+    %(reject_by_annotation_epochs)s
 
         .. versionadded:: 0.14.0
+    %(decim)s
+
+        .. versionadded:: 0.21.0
     %(verbose)s
 
     Returns
@@ -376,7 +368,7 @@ def create_ecg_epochs(raw, ch_name=None, event_id=999, picks=None, tmin=-0.5,
                         tmin=tmin, tmax=tmax, proj=False, flat=flat,
                         picks=picks, reject=reject, baseline=baseline,
                         reject_by_annotation=reject_by_annotation,
-                        preload=preload)
+                        preload=preload, decim=decim)
 
     if keep_ecg:
         # We know we have created a synthetic channel and epochs are preloaded
@@ -391,7 +383,7 @@ def create_ecg_epochs(raw, ch_name=None, event_id=999, picks=None, tmin=-0.5,
         syn_epochs = Epochs(ecg_raw, events=ecg_epochs.events,
                             event_id=event_id, tmin=tmin, tmax=tmax,
                             proj=False, picks=[0], baseline=baseline,
-                            preload=True)
+                            decim=decim, preload=True)
         ecg_epochs = ecg_epochs.add_channels([syn_epochs])
 
     return ecg_epochs

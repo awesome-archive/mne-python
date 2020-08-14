@@ -32,8 +32,8 @@ def test_find_ecg():
         _, times = raw[0, :]
         assert 55 < average_pulse < 60
         # with annotations
-        with pytest.deprecated_call():
-            average_pulse = find_ecg_events(raw_bad, ch_name=ch_name)[2]
+        average_pulse = find_ecg_events(raw_bad, ch_name=ch_name,
+                                        reject_by_annotation=False)[2]
         assert average_pulse < 1.
         average_pulse = find_ecg_events(raw_bad, ch_name=ch_name,
                                         reject_by_annotation=True)[2]
@@ -72,7 +72,7 @@ def test_find_ecg():
         raw.set_channel_types({'MEG 2641': 'ecg'})
     create_ecg_epochs(raw)
 
-    raw.load_data().pick_types()  # remove ECG
+    raw.load_data().pick_types(meg=True)  # remove ECG
     ecg_epochs = create_ecg_epochs(raw, keep_ecg=False)
     assert len(ecg_epochs.events) == n_events
     assert 'ECG-SYN' not in raw.ch_names

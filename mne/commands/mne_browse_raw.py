@@ -19,8 +19,8 @@ import mne
 def run():
     """Run command."""
     import matplotlib.pyplot as plt
-
-    from mne.commands.utils import get_optparser
+    from mne.commands.utils import get_optparser, _add_verbose_flag
+    from mne.viz import _RAW_CLIP_DEF
 
     parser = get_optparser(__file__, usage='usage: %prog raw [options]')
 
@@ -66,14 +66,11 @@ def run():
                       default=4)
     parser.add_option("--clipping", dest="clipping",
                       help="Enable trace clipping mode, either 'clamp' or "
-                      "'transparent'", default=None)
+                      "'transparent'", default=_RAW_CLIP_DEF)
     parser.add_option("--filterchpi", dest="filterchpi",
                       help="Enable filtering cHPI signals.", default=None,
                       action="store_true")
-    parser.add_option("--verbose", dest='verbose',
-                      help="Enable verbose mode.", default=None,
-                      action="store_true")
-
+    _add_verbose_flag(parser)
     options, args = parser.parse_args()
 
     if len(args):
@@ -93,6 +90,14 @@ def run():
     lowpass = options.lowpass
     filtorder = options.filtorder
     clipping = options.clipping
+    if isinstance(clipping, str):
+        if clipping.lower() == 'none':
+            clipping = None
+        else:
+            try:
+                clipping = float(clipping)  # allow float and convert it
+            except ValueError:
+                pass
     filterchpi = options.filterchpi
     verbose = options.verbose
 
